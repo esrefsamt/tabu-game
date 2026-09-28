@@ -3,7 +3,15 @@ import cors from "cors";
 import express from "express";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
-import type { HealthResponse } from "@tabu/shared";
+import type {
+  ClientToServerEvents,
+  HealthResponse,
+  InterServerEvents,
+  ServerToClientEvents,
+  SocketData
+} from "@tabu/shared";
+import { RoomManager } from "./rooms/RoomManager.js";
+import { registerRoomHandlers } from "./socket/roomHandlers.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -18,15 +26,19 @@ app.get("/api/health", (_request, response) => {
   response.json(health);
 });
 
-const io = new Server(httpServer, {
+const io = new Server<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>(httpServer, {
   cors: {
     origin: clientOrigin,
     methods: ["GET", "POST"]
   }
 });
 
-// Socket.IO is ready for a later phase; game and lobby events are intentionally absent.
-io.on("connection", () => undefined);
+registerRoomHandlers(io, new RoomManager());
 
 httpServer.listen(port, () => {
   console.log(`Tabu API listening on http://localhost:${port}`);

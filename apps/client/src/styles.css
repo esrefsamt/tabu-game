@@ -117,6 +117,7 @@ input:focus { border-color: #7b9d89; box-shadow: 0 0 0 3px rgba(84, 125, 106, 0.
 }
 
 .button:active { transform: translateY(1px); }
+.button:disabled { cursor: wait; opacity: 0.72; }
 .button-primary { margin-top: 14px; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
 .button-primary:hover { border-color: var(--accent-dark); background: var(--accent-dark); }
 .button-secondary { margin-top: 12px; border: 1px solid #dce4de; background: #f7faf8; color: #3e654f; }
@@ -136,9 +137,65 @@ input:focus { border-color: #7b9d89; box-shadow: 0 0 0 3px rgba(84, 125, 106, 0.
 .join-form .button { margin-top: 14px; }
 .page-note { margin: 18px 0 0; color: #929992; text-align: center; font-size: 12px; }
 
+.lobby-shell { padding-top: 36px; }
+.lobby-card {
+  width: min(100%, 520px);
+  padding: 34px 38px 30px;
+  border: 1px solid rgba(226, 229, 224, 0.9);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 16px 45px rgba(42, 51, 44, 0.06);
+}
+.lobby-header { padding-bottom: 22px; text-align: center; }
+.lobby-brand { margin-bottom: 13px; }
+.lobby-header h1 { margin-top: 3px; font-size: 36px; }
+.room-share {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.section-label { margin: 0 0 4px; color: var(--text-soft); font-size: 12px; font-weight: 600; }
+.room-code { margin: 0; color: #2c4938; font-size: 24px; font-weight: 800; letter-spacing: 0.12em; }
+.copy-button { min-height: 42px; margin: 0; padding: 0 14px; white-space: nowrap; }
+.copy-message { min-height: 18px; margin: 6px 0 12px; color: var(--accent-dark); font-size: 12px; text-align: right; }
+.players-heading { display: flex; align-items: center; justify-content: space-between; margin: 3px 0 12px; }
+.players-heading h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.team-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.team-panel, .unassigned-panel { min-width: 0; padding: 14px; border: 1px solid #edf0ec; border-radius: 11px; background: #fbfcfb; }
+.team-panel-selected { border-color: #a9c2b1; background: #f6faf7; }
+.team-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.team-panel-heading h3 { margin: 0; color: #3e5948; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.team-panel-heading > span { color: var(--text-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.team-player-list { gap: 7px; }
+.team-player-list .player-row { min-height: 42px; padding: 0 10px; background: #fff; }
+.empty-team { margin: 0; padding: 7px 0; color: #929992; font-size: 12px; }
+.unassigned-panel { margin-top: 12px; }
+.team-selection { margin-top: 18px; text-align: center; }
+.team-current { margin: 0 0 10px; color: #46564b; font-size: 13px; font-weight: 600; }
+.team-buttons { display: flex; justify-content: center; gap: 10px; }
+.team-choice { min-height: 44px; margin: 0; padding: 0 14px; border: 1px solid #dce4de; background: #f7faf8; color: #3e654f; }
+.team-choice:hover:not(:disabled) { border-color: #b8cbbf; background: #eff5f1; }
+.team-choice-selected, .team-choice-selected:disabled { border-color: var(--accent); background: #eaf2ed; color: var(--accent-dark); opacity: 1; cursor: default; }
+.player-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.player-row { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; border: 1px solid #edf0ec; border-radius: 9px; background: #fbfcfb; }
+.player-name { overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
+.host-badge { color: #587661; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.lobby-hint { margin: 20px 0 0; color: var(--text-soft); text-align: center; font-size: 13px; }
+
 @media (max-width: 520px) {
   .page-shell { justify-content: flex-start; padding: 54px 16px 24px; }
   .welcome-card { padding: 32px 24px; border-radius: 16px; }
+  .lobby-card { padding: 28px 22px 24px; border-radius: 16px; }
+  .team-grid { grid-template-columns: 1fr; }
+  .team-buttons { flex-direction: column; }
+  .team-choice { width: 100%; }
+  .room-share { align-items: flex-start; }
+  .room-code { font-size: 21px; }
+  .copy-button { padding: 0 10px; font-size: 12px; }
   h1 { font-size: 38px; }
 }
 
