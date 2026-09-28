@@ -182,9 +182,23 @@ input:focus { border-color: #7b9d89; box-shadow: 0 0 0 3px rgba(84, 125, 106, 0.
 .team-choice-selected, .team-choice-selected:disabled { border-color: var(--accent); background: #eaf2ed; color: var(--accent-dark); opacity: 1; cursor: default; }
 .player-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .player-row { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; border: 1px solid #edf0ec; border-radius: 9px; background: #fbfcfb; }
-.player-name { overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
+.player-name { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 14px; font-weight: 600; }
+.player-badges { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .host-badge { color: #587661; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.captain-badge { padding: 3px 7px; border-radius: 999px; background: #f0efe7; color: #756b42; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .lobby-hint { margin: 20px 0 0; color: var(--text-soft); text-align: center; font-size: 13px; }
+.lobby-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.section-heading h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.host-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.control-field { display: flex; min-width: 0; flex-direction: column; }
+.control-field label { margin-bottom: 7px; }
+.control-field select { width: 100%; min-height: 44px; padding: 0 11px; border: 1px solid #dfe3de; border-radius: 9px; outline: none; background: #fff; color: #303732; font: inherit; font-size: 13px; }
+.control-field select:focus { border-color: #7b9d89; box-shadow: 0 0 0 3px rgba(84, 125, 106, 0.13); }
+.control-field select:disabled { cursor: wait; opacity: 0.72; }
+.captain-readonly, .settings-readonly { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.captain-readonly p, .settings-readonly p { margin: 0; padding: 11px 12px; border: 1px solid #edf0ec; border-radius: 9px; background: #fbfcfb; color: #59625b; font-size: 12px; }
+.captain-readonly strong, .settings-readonly strong { color: #303732; }
 
 @media (max-width: 520px) {
   .page-shell { justify-content: flex-start; padding: 54px 16px 24px; }
@@ -193,6 +207,7 @@ input:focus { border-color: #7b9d89; box-shadow: 0 0 0 3px rgba(84, 125, 106, 0.
   .team-grid { grid-template-columns: 1fr; }
   .team-buttons { flex-direction: column; }
   .team-choice { width: 100%; }
+  .captain-readonly, .settings-readonly { grid-template-columns: 1fr; }
   .room-share { align-items: flex-start; }
   .room-code { font-size: 21px; }
   .copy-button { padding: 0 10px; font-size: 12px; }

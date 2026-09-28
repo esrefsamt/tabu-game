@@ -3,6 +3,13 @@ export interface HealthResponse {
 }
 
 export type Team = "A" | "B";
+export type RoundDurationSeconds = 30 | 45 | 60 | 90 | 120;
+export type PassLimit = 0 | 1 | 2 | 3 | 4 | 5 | 10;
+
+export interface RoomSettings {
+  roundDurationSeconds: RoundDurationSeconds;
+  passLimit: PassLimit;
+}
 
 export interface Player {
   id: string;
@@ -14,6 +21,9 @@ export interface Player {
 export interface RoomState {
   code: string;
   players: Player[];
+  captainAId: string | null;
+  captainBId: string | null;
+  settings: RoomSettings;
 }
 
 export interface CreateRoomPayload {
@@ -28,6 +38,15 @@ export interface JoinRoomPayload {
 export interface SetTeamPayload {
   team: Team;
 }
+
+export interface SetCaptainPayload {
+  team: Team;
+  captainId: string | null;
+}
+
+export type UpdateRoomSettingsPayload =
+  | { setting: "roundDurationSeconds"; value: RoundDurationSeconds }
+  | { setting: "passLimit"; value: PassLimit };
 
 export type RoomErrorCode =
   | "invalid-name"
@@ -48,6 +67,29 @@ export type TeamActionResponse =
   | { ok: true }
   | { ok: false; error: TeamActionError };
 
+export type CaptainActionError =
+  | "invalid-team"
+  | "invalid-captain"
+  | "not-in-room"
+  | "not-host"
+  | "server-unavailable"
+  | "request-timeout";
+
+export type CaptainActionResponse =
+  | { ok: true }
+  | { ok: false; error: CaptainActionError };
+
+export type SettingsActionError =
+  | "invalid-settings"
+  | "not-in-room"
+  | "not-host"
+  | "server-unavailable"
+  | "request-timeout";
+
+export type SettingsActionResponse =
+  | { ok: true }
+  | { ok: false; error: SettingsActionError };
+
 export interface ClientToServerEvents {
   "room:create": (
     payload: CreateRoomPayload,
@@ -60,6 +102,14 @@ export interface ClientToServerEvents {
   "room:set-team": (
     payload: SetTeamPayload,
     acknowledge: (response: TeamActionResponse) => void
+  ) => void;
+  "room:set-captain": (
+    payload: SetCaptainPayload,
+    acknowledge: (response: CaptainActionResponse) => void
+  ) => void;
+  "room:update-settings": (
+    payload: UpdateRoomSettingsPayload,
+    acknowledge: (response: SettingsActionResponse) => void
   ) => void;
 }
 

@@ -1,10 +1,12 @@
 import type { Server, Socket } from "socket.io";
 import type {
   ClientToServerEvents,
+  CaptainActionResponse,
   InterServerEvents,
   RoomActionResponse,
   RoomErrorCode,
   ServerToClientEvents,
+  SettingsActionResponse,
   SocketData,
   TeamActionResponse
 } from "@tabu/shared";
@@ -124,6 +126,40 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
 
       io.to(roomCode).emit("room:state", result.room);
       respond(acknowledge, { ok: true } satisfies TeamActionResponse);
+    });
+
+    socket.on("room:set-captain", (payload, acknowledge) => {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies CaptainActionResponse);
+        return;
+      }
+
+      const result = rooms.setCaptain(roomCode, socket.id, payload);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+
+      io.to(roomCode).emit("room:state", result.room);
+      respond(acknowledge, { ok: true } satisfies CaptainActionResponse);
+    });
+
+    socket.on("room:update-settings", (payload, acknowledge) => {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies SettingsActionResponse);
+        return;
+      }
+
+      const result = rooms.updateSettings(roomCode, socket.id, payload);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+
+      io.to(roomCode).emit("room:state", result.room);
+      respond(acknowledge, { ok: true } satisfies SettingsActionResponse);
     });
 
     socket.on("disconnect", () => {

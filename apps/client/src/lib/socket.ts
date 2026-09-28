@@ -1,12 +1,16 @@
 import { useSyncExternalStore } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
+  CaptainActionResponse,
   ClientToServerEvents,
   RoomActionResponse,
   RoomState,
+  SettingsActionResponse,
+  SetCaptainPayload,
   ServerToClientEvents,
   Team,
-  TeamActionResponse
+  TeamActionResponse,
+  UpdateRoomSettingsPayload
 } from "@tabu/shared";
 
 export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
@@ -96,8 +100,36 @@ export function joinRoom(name: string, roomCode: string): Promise<RoomActionResp
 }
 
 export function changeTeam(team: Team): Promise<TeamActionResponse> {
+  return requestLobbyAction<TeamActionResponse>(
+    (acknowledge) => socket.emit("room:set-team", { team }, acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+export function setCaptain(payload: SetCaptainPayload): Promise<CaptainActionResponse> {
+  return requestLobbyAction<CaptainActionResponse>(
+    (acknowledge) => socket.emit("room:set-captain", payload, acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+export function updateRoomSettings(payload: UpdateRoomSettingsPayload): Promise<SettingsActionResponse> {
+  return requestLobbyAction<SettingsActionResponse>(
+    (acknowledge) => socket.emit("room:update-settings", payload, acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+function requestLobbyAction<Response>(
+  emit: (acknowledge: (response: Response) => void) => void,
+  unavailableResponse: Response,
+  timeoutResponse: Response
+): Promise<Response> {
   if (!socket.connected) {
-    return Promise.resolve({ ok: false, error: "server-unavailable" });
+    return Promise.resolve(unavailableResponse);
   }
 
   return new Promise((resolve) => {
@@ -105,11 +137,11 @@ export function changeTeam(team: Team): Promise<TeamActionResponse> {
     const timeout = window.setTimeout(() => {
       if (!completed) {
         completed = true;
-        resolve({ ok: false, error: "request-timeout" });
+        resolve(timeoutResponse);
       }
     }, 8000);
 
-    socket.emit("room:set-team", { team }, (response) => {
+    emit((response) => {
       if (completed) {
         return;
       }
