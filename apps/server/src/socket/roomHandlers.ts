@@ -2,9 +2,11 @@ import type { Server, Socket } from "socket.io";
 import type {
   ClientToServerEvents,
   CaptainActionResponse,
+  GameStartResponse,
   InterServerEvents,
   RoomActionResponse,
   RoomErrorCode,
+  RoomState,
   ServerToClientEvents,
   SettingsActionResponse,
   SocketData,
@@ -162,6 +164,23 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
       respond(acknowledge, { ok: true } satisfies SettingsActionResponse);
     });
 
+    socket.on("game:start", (acknowledge) => {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies GameStartResponse);
+        return;
+      }
+
+      const result = rooms.startGame(roomCode, socket.id);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+
+      io.to(roomCode).emit("room:state", result.room);
+      respond(acknowledge, { ok: true } satisfies GameStartResponse);
+    });
+
     socket.on("disconnect", () => {
       const roomCode = socket.data.roomCode;
       if (!roomCode) {
@@ -174,4 +193,12 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
       }
     });
   });
+}
+
+export function advanceRoomTurn(io: TabuServer, rooms: RoomManager, roomCode: string): RoomState | null {
+  const room = rooms.advanceTurn(roomCode);
+  if (room) {
+    io.to(roomCode).emit("room:state", room);
+  }
+  return room;
 }

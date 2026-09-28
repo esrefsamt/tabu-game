@@ -2,14 +2,16 @@ import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import type {
   CaptainActionError,
+  GameStartError,
   PassLimit,
   Player,
+  RoomState,
   RoundDurationSeconds,
   SettingsActionError,
   Team,
   TeamActionError
 } from "@tabu/shared";
-import { changeTeam, setCaptain, socket, updateRoomSettings, useRoomState } from "../lib/socket";
+import { changeTeam, setCaptain, socket, startGame, updateRoomSettings, useRoomState } from "../lib/socket";
 
 const ROUND_DURATIONS: RoundDurationSeconds[] = [30, 45, 60, 90, 120];
 const PASS_LIMITS: PassLimit[] = [0, 1, 2, 3, 4, 5, 10];
@@ -20,6 +22,8 @@ function teamErrorMessage(error: TeamActionError): string {
       return "Takım seçimi geçersiz.";
     case "not-in-room":
       return "Oda bağlantısı bulunamadı. Lütfen odaya yeniden katıl.";
+    case "game-already-started":
+      return "Oyun başladıktan sonra takım değiştirilemez.";
     case "server-unavailable":
       return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
     case "request-timeout":
@@ -37,6 +41,8 @@ function captainErrorMessage(error: CaptainActionError): string {
       return "Oda bağlantısı bulunamadı. Lütfen odaya yeniden katıl.";
     case "not-host":
       return "Kaptanları yalnızca oda sahibi seçebilir.";
+    case "game-already-started":
+      return "Oyun başladıktan sonra kaptan değiştirilemez.";
     case "server-unavailable":
       return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
     case "request-timeout":
@@ -52,6 +58,8 @@ function settingsErrorMessage(error: SettingsActionError): string {
       return "Oda bağlantısı bulunamadı. Lütfen odaya yeniden katıl.";
     case "not-host":
       return "Oyun ayarlarını yalnızca oda sahibi değiştirebilir.";
+    case "game-already-started":
+      return "Oyun başladıktan sonra ayarlar değiştirilemez.";
     case "server-unavailable":
       return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
     case "request-timeout":
@@ -59,7 +67,38 @@ function settingsErrorMessage(error: SettingsActionError): string {
   }
 }
 
-function TeamPlayerList({ players, captainId }: { players: Player[]; captainId: string | null }) {
+function gameStartErrorMessage(error: GameStartError): string {
+  switch (error) {
+    case "not-in-room":
+      return "Oda bağlantısı bulunamadı. Lütfen odaya yeniden katıl.";
+    case "not-host":
+      return "Oyunu yalnızca oda sahibi başlatabilir.";
+    case "game-already-started":
+      return "Oyun zaten başladı.";
+    case "not-enough-players":
+      return "Oyunu başlatmak için en az 2 oyuncu gerekli.";
+    case "teams-incomplete":
+      return "Her iki takımda da en az bir oyuncu olmalı.";
+    case "captains-required":
+      return "Her iki takım için kaptan seçilmelidir.";
+    case "players-unassigned":
+      return "Tüm oyuncular bir takım seçmelidir.";
+    case "server-unavailable":
+      return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
+    case "request-timeout":
+      return "Sunucudan yanıt alınamadı. Lütfen tekrar dene.";
+  }
+}
+
+function TeamPlayerList({
+  players,
+  captainId,
+  clueGiverId = null
+}: {
+  players: Player[];
+  captainId: string | null;
+  clueGiverId?: string | null;
+}) {
   if (players.length === 0) {
     return <p className="empty-team">Bu takımda henüz oyuncu yok.</p>;
   }
@@ -72,10 +111,58 @@ function TeamPlayerList({ players, captainId }: { players: Player[]; captainId: 
           <span className="player-badges">
             {player.isHost && <span className="host-badge" aria-label="Oda sahibi">★ Host</span>}
             {player.id === captainId && <span className="captain-badge">Kaptan</span>}
+            {player.id === clueGiverId && <span className="clue-giver-badge">Anlatıcı</span>}
           </span>
         </li>
       ))}
     </ul>
+  );
+}
+
+function GamePreparationScreen({ room }: { room: RoomState }) {
+  const teamAPlayers = room.players.filter((player) => player.team === "A");
+  const teamBPlayers = room.players.filter((player) => player.team === "B");
+  const clueGiver = room.players.find((player) => player.id === room.game.clueGiverId);
+  const activeTeamLabel = room.game.activeTeam === "A" ? "Takım A" : "Takım B";
+
+  return (
+    <main className="page-shell lobby-shell">
+      <section className="game-card" aria-labelledby="game-screen-title">
+        <header className="lobby-header">
+          <div className="brand-mark lobby-brand" aria-hidden="true">T</div>
+          <p className="eyebrow">Oyun hazırlığı</p>
+          <h1 id="game-screen-title">TABU</h1>
+        </header>
+
+        {room.game.phase === "unable-to-continue" ? (
+          <p className="game-unavailable-message" role="alert">
+            {activeTeamLabel} için oyuncu kalmadığından oyun devam edemiyor.
+          </p>
+        ) : (
+          <section className="turn-summary" aria-live="polite">
+            <p className="active-team-label">Sıra: {activeTeamLabel}</p>
+            <p className="clue-giver-name">Anlatıcı: <strong>{clueGiver?.name ?? "Oyuncu bulunamadı"}</strong></p>
+          </section>
+        )}
+
+        <div className="team-grid game-rosters">
+          <section className="team-panel" aria-labelledby="game-team-a-title">
+            <div className="team-panel-heading"><h3 id="game-team-a-title">Takım A</h3><span>{teamAPlayers.length}</span></div>
+            <TeamPlayerList players={teamAPlayers} captainId={room.captainAId} clueGiverId={room.game.clueGiverId} />
+          </section>
+          <section className="team-panel" aria-labelledby="game-team-b-title">
+            <div className="team-panel-heading"><h3 id="game-team-b-title">Takım B</h3><span>{teamBPlayers.length}</span></div>
+            <TeamPlayerList players={teamBPlayers} captainId={room.captainBId} clueGiverId={room.game.clueGiverId} />
+          </section>
+        </div>
+
+        <section className="game-settings" aria-label="Oyun ayarları">
+          <p>Tur süresi: <strong>{room.settings.roundDurationSeconds} saniye</strong></p>
+          <p>Pas hakkı: <strong>{room.settings.passLimit}</strong></p>
+        </section>
+        {room.game.phase === "turn-preparation" && <p className="lobby-hint">Tura hazırlanılıyor</p>}
+      </section>
+    </main>
   );
 }
 
@@ -89,6 +176,8 @@ function LobbyPage() {
   const [captainPending, setCaptainPending] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsPending, setSettingsPending] = useState(false);
+  const [gameStartError, setGameStartError] = useState("");
+  const [gameStartPending, setGameStartPending] = useState(false);
 
   useEffect(() => {
     if (!copyMessage) {
@@ -100,6 +189,10 @@ function LobbyPage() {
 
   if (!room || room.code !== roomCode.toUpperCase()) {
     return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}`} replace />;
+  }
+
+  if (room.game.phase !== "lobby") {
+    return <GamePreparationScreen room={room} />;
   }
 
   const teamAPlayers = room.players.filter((player) => player.team === "A");
@@ -142,6 +235,16 @@ function LobbyPage() {
       setSettingsError(settingsErrorMessage(response.error));
     }
     setSettingsPending(false);
+  }
+
+  async function handleStartGame() {
+    setGameStartError("");
+    setGameStartPending(true);
+    const response = await startGame();
+    if (!response.ok) {
+      setGameStartError(gameStartErrorMessage(response.error));
+    }
+    setGameStartPending(false);
   }
 
   function handleRoundDurationChange(value: string) {
@@ -328,6 +431,19 @@ function LobbyPage() {
         </section>
 
         <p className="lobby-hint">Arkadaşlarını davet et, katılmalarını bekle.</p>
+        {isHost && (
+          <div className="start-game-controls">
+            <button
+              className="button button-primary"
+              disabled={gameStartPending}
+              onClick={() => void handleStartGame()}
+              type="button"
+            >
+              {gameStartPending ? "Başlatılıyor…" : "Oyunu Başlat"}
+            </button>
+            {gameStartError && <p className="validation-message" role="alert">{gameStartError}</p>}
+          </div>
+        )}
       </section>
     </main>
   );

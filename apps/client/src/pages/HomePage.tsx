@@ -13,6 +13,8 @@ function errorMessage(error: RoomErrorCode): string {
       return "Oda bulunamadı.";
     case "room-full":
       return "Oda dolu.";
+    case "game-already-started":
+      return "Oyun zaten başladı.";
     case "already-in-room":
       return "Zaten bir odadasın. Sayfayı yenileyip tekrar dene.";
     case "server-unavailable":

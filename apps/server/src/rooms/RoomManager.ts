@@ -1,13 +1,17 @@
 import { randomInt } from "node:crypto";
 import type {
   CaptainActionError,
+  GameStartError,
   Player,
+  PublicGameState,
   RoomSettings,
   RoomState,
   RoundDurationSeconds,
   SettingsActionError,
   TeamActionError
 } from "@tabu/shared";
+import { RoomDeckStore } from "../cards/RoomDeckStore.js";
+import { TurnEngine } from "../game/TurnEngine.js";
 
 const ROOM_CODE_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ROOM_CODE_LENGTH = 6;
@@ -17,6 +21,12 @@ const PASS_LIMITS = [0, 1, 2, 3, 4, 5, 10] as const;
 const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   roundDurationSeconds: 60,
   passLimit: 3
+};
+const LOBBY_GAME_STATE: PublicGameState = {
+  phase: "lobby",
+  activeTeam: null,
+  clueGiverId: null,
+  error: null
 };
 
 interface Room {
@@ -30,7 +40,7 @@ interface Room {
 
 export type JoinRoomResult =
   | { ok: true; room: RoomState }
-  | { ok: false; error: "invalid-room-code" | "room-not-found" | "room-full" };
+  | { ok: false; error: "invalid-room-code" | "room-not-found" | "room-full" | "game-already-started" };
 
 export type TeamChangeResult =
   | { ok: true; room: RoomState }
@@ -44,8 +54,14 @@ export type SettingsChangeResult =
   | { ok: true; room: RoomState }
   | { ok: false; error: SettingsActionError };
 
+export type GameStartResult =
+  | { ok: true; room: RoomState }
+  | { ok: false; error: GameStartError };
+
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
+  private readonly decks = new RoomDeckStore();
+  private readonly turnEngines = new Map<string, TurnEngine>();
 
   createRoom(playerId: string, name: string): RoomState {
     const code = this.createUniqueCode();
@@ -59,6 +75,7 @@ export class RoomManager {
     };
 
     this.rooms.set(code, room);
+    this.decks.create(code);
     return this.toRoomState(room);
   }
 
@@ -71,6 +88,10 @@ export class RoomManager {
     const room = this.rooms.get(roomCode);
     if (!room) {
       return { ok: false, error: "room-not-found" };
+    }
+
+    if (this.turnEngines.has(roomCode)) {
+      return { ok: false, error: "game-already-started" };
     }
 
     if (!room.players.has(playerId) && room.players.size >= MAX_PLAYERS) {
@@ -91,6 +112,9 @@ export class RoomManager {
     if (!room || !player) {
       return { ok: false, error: "not-in-room" };
     }
+    if (this.turnEngines.has(roomCode)) {
+      return { ok: false, error: "game-already-started" };
+    }
 
     player.team = requestedTeam;
     if (requestedTeam !== "A" && room.captainAId === playerId) {
@@ -109,6 +133,9 @@ export class RoomManager {
     }
     if (room.hostId !== requesterId) {
       return { ok: false, error: "not-host" };
+    }
+    if (this.turnEngines.has(roomCode)) {
+      return { ok: false, error: "game-already-started" };
     }
     if (!isExactRecord(payload, ["team", "captainId"])) {
       return { ok: false, error: "invalid-captain" };
@@ -146,6 +173,9 @@ export class RoomManager {
     if (room.hostId !== requesterId) {
       return { ok: false, error: "not-host" };
     }
+    if (this.turnEngines.has(roomCode)) {
+      return { ok: false, error: "game-already-started" };
+    }
     if (!isExactRecord(payload, ["setting", "value"])) {
       return { ok: false, error: "invalid-settings" };
     }
@@ -161,6 +191,59 @@ export class RoomManager {
     return { ok: true, room: this.toRoomState(room) };
   }
 
+  startGame(roomCode: string, requesterId: string): GameStartResult {
+    const room = this.rooms.get(roomCode);
+    if (!room?.players.has(requesterId)) {
+      return { ok: false, error: "not-in-room" };
+    }
+    if (room.hostId !== requesterId) {
+      return { ok: false, error: "not-host" };
+    }
+    if (this.turnEngines.has(roomCode)) {
+      return { ok: false, error: "game-already-started" };
+    }
+
+    if (room.players.size < 2) {
+      return { ok: false, error: "not-enough-players" };
+    }
+
+    const teamAPlayerIds = [...room.players.values()]
+      .filter((player) => player.team === "A")
+      .map((player) => player.id);
+    const teamBPlayerIds = [...room.players.values()]
+      .filter((player) => player.team === "B")
+      .map((player) => player.id);
+    if (teamAPlayerIds.length === 0 || teamBPlayerIds.length === 0) {
+      return { ok: false, error: "teams-incomplete" };
+    }
+    if (room.captainAId === null || room.captainBId === null) {
+      return { ok: false, error: "captains-required" };
+    }
+    if (teamAPlayerIds.length + teamBPlayerIds.length !== room.players.size) {
+      return { ok: false, error: "players-unassigned" };
+    }
+
+    const teamACaptain = room.players.get(room.captainAId);
+    const teamBCaptain = room.players.get(room.captainBId);
+    if (teamACaptain?.team !== "A" || teamBCaptain?.team !== "B") {
+      return { ok: false, error: "captains-required" };
+    }
+
+    this.turnEngines.set(roomCode, new TurnEngine(teamAPlayerIds, teamBPlayerIds));
+    return { ok: true, room: this.toRoomState(room) };
+  }
+
+  advanceTurn(roomCode: string): RoomState | null {
+    const room = this.rooms.get(roomCode);
+    const engine = this.turnEngines.get(roomCode);
+    if (!room || !engine) {
+      return null;
+    }
+
+    engine.advanceTurn();
+    return this.toRoomState(room);
+  }
+
   removePlayer(roomCode: string, playerId: string): RoomState | null {
     const room = this.rooms.get(roomCode);
     if (!room || !room.players.delete(playerId)) {
@@ -169,8 +252,12 @@ export class RoomManager {
 
     if (room.players.size === 0) {
       this.rooms.delete(roomCode);
+      this.decks.remove(roomCode);
+      this.turnEngines.delete(roomCode);
       return null;
     }
+
+    this.turnEngines.get(roomCode)?.removePlayer(playerId);
 
     if (room.captainAId === playerId) {
       room.captainAId = null;
@@ -211,6 +298,7 @@ export class RoomManager {
       captainAId: room.captainAId,
       captainBId: room.captainBId,
       settings: { ...room.settings },
+      game: this.turnEngines.get(room.code)?.publicState ?? { ...LOBBY_GAME_STATE },
       players: [...room.players.values()].map((player) => ({
         ...player,
         isHost: player.id === room.hostId

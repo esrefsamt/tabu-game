@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "concurrently -k -n server,client -c blue,green \"npm run dev -w @tabu/server\" \"npm run dev -w @tabu/client\"",
     "build": "npm run build -w @tabu/shared && npm run build -w @tabu/server && npm run build -w @tabu/client",
-    "typecheck": "npm run typecheck -w @tabu/shared && npm run typecheck -w @tabu/server && npm run typecheck -w @tabu/client"
+    "typecheck": "npm run typecheck -w @tabu/shared && npm run typecheck -w @tabu/server && npm run typecheck -w @tabu/client",
+    "test": "npm run test -w @tabu/server"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

@@ -6,9 +6,25 @@ export type Team = "A" | "B";
 export type RoundDurationSeconds = 30 | 45 | 60 | 90 | 120;
 export type PassLimit = 0 | 1 | 2 | 3 | 4 | 5 | 10;
 
+export interface TabuCard {
+  readonly id: string;
+  readonly word: string;
+  readonly forbiddenWords: readonly [string, string, string, string, string];
+}
+
 export interface RoomSettings {
   roundDurationSeconds: RoundDurationSeconds;
   passLimit: PassLimit;
+}
+
+export type GamePhase = "lobby" | "turn-preparation" | "unable-to-continue";
+export type GameStateError = "team-empty";
+
+export interface PublicGameState {
+  phase: GamePhase;
+  activeTeam: Team | null;
+  clueGiverId: string | null;
+  error: GameStateError | null;
 }
 
 export interface Player {
@@ -24,6 +40,7 @@ export interface RoomState {
   captainAId: string | null;
   captainBId: string | null;
   settings: RoomSettings;
+  game: PublicGameState;
 }
 
 export interface CreateRoomPayload {
@@ -53,6 +70,7 @@ export type RoomErrorCode =
   | "invalid-room-code"
   | "room-not-found"
   | "room-full"
+  | "game-already-started"
   | "already-in-room"
   | "server-unavailable"
   | "request-timeout";
@@ -61,7 +79,12 @@ export type RoomActionResponse =
   | { ok: true; room: RoomState }
   | { ok: false; error: RoomErrorCode };
 
-export type TeamActionError = "invalid-team" | "not-in-room" | "server-unavailable" | "request-timeout";
+export type TeamActionError =
+  | "invalid-team"
+  | "not-in-room"
+  | "game-already-started"
+  | "server-unavailable"
+  | "request-timeout";
 
 export type TeamActionResponse =
   | { ok: true }
@@ -72,6 +95,7 @@ export type CaptainActionError =
   | "invalid-captain"
   | "not-in-room"
   | "not-host"
+  | "game-already-started"
   | "server-unavailable"
   | "request-timeout";
 
@@ -83,12 +107,26 @@ export type SettingsActionError =
   | "invalid-settings"
   | "not-in-room"
   | "not-host"
+  | "game-already-started"
   | "server-unavailable"
   | "request-timeout";
 
 export type SettingsActionResponse =
   | { ok: true }
   | { ok: false; error: SettingsActionError };
+
+export type GameStartError =
+  | "not-in-room"
+  | "not-host"
+  | "game-already-started"
+  | "not-enough-players"
+  | "teams-incomplete"
+  | "captains-required"
+  | "players-unassigned"
+  | "server-unavailable"
+  | "request-timeout";
+
+export type GameStartResponse = { ok: true } | { ok: false; error: GameStartError };
 
 export interface ClientToServerEvents {
   "room:create": (
@@ -111,6 +149,7 @@ export interface ClientToServerEvents {
     payload: UpdateRoomSettingsPayload,
     acknowledge: (response: SettingsActionResponse) => void
   ) => void;
+  "game:start": (acknowledge: (response: GameStartResponse) => void) => void;
 }
 
 export interface ServerToClientEvents {

@@ -3,6 +3,7 @@ import { io, type Socket } from "socket.io-client";
 import type {
   CaptainActionResponse,
   ClientToServerEvents,
+  GameStartResponse,
   RoomActionResponse,
   RoomState,
   SettingsActionResponse,
@@ -118,6 +119,14 @@ export function setCaptain(payload: SetCaptainPayload): Promise<CaptainActionRes
 export function updateRoomSettings(payload: UpdateRoomSettingsPayload): Promise<SettingsActionResponse> {
   return requestLobbyAction<SettingsActionResponse>(
     (acknowledge) => socket.emit("room:update-settings", payload, acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+export function startGame(): Promise<GameStartResponse> {
+  return requestLobbyAction<GameStartResponse>(
+    (acknowledge) => socket.emit("game:start", acknowledge),
     { ok: false, error: "server-unavailable" },
     { ok: false, error: "request-timeout" }
   );
