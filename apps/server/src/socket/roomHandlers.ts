@@ -1,12 +1,14 @@
 import type { Server, Socket } from "socket.io";
 import type {
   ClientToServerEvents,
+  CardActionResponse,
   CaptainActionResponse,
   GameStartResponse,
   InterServerEvents,
   RoomActionResponse,
   RoomErrorCode,
   RoomState,
+  RoundStartResponse,
   ServerToClientEvents,
   SettingsActionResponse,
   SocketData,
@@ -57,7 +59,18 @@ function errorResponse(error: RoomErrorCode): RoomActionResponse {
   return { ok: false, error };
 }
 
+function broadcastRoomState(io: TabuServer, rooms: RoomManager, roomCode: string, room: RoomState): void {
+  io.to(roomCode).emit("room:state", room);
+  for (const socketId of io.sockets.adapter.rooms.get(roomCode) ?? []) {
+    const view = rooms.getPersonalGameView(roomCode, socketId);
+    if (view) {
+      io.to(socketId).emit("game:view", view);
+    }
+  }
+}
+
 export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
+  rooms.setStatePublisher((roomCode, room) => broadcastRoomState(io, rooms, roomCode, room));
   io.on("connection", (socket: TabuSocket) => {
     socket.on("room:create", async (payload, acknowledge) => {
       if (socket.data.roomCode) {
@@ -74,7 +87,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
       const room = rooms.createRoom(socket.id, name);
       socket.data.roomCode = room.code;
       await socket.join(room.code);
-      io.to(room.code).emit("room:state", room);
+      broadcastRoomState(io, rooms, room.code, room);
       respond(acknowledge, { ok: true, room });
     });
 
@@ -104,7 +117,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
 
       socket.data.roomCode = result.room.code;
       await socket.join(result.room.code);
-      io.to(result.room.code).emit("room:state", result.room);
+      broadcastRoomState(io, rooms, result.room.code, result.room);
       respond(acknowledge, result);
     });
 
@@ -126,7 +139,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
         return;
       }
 
-      io.to(roomCode).emit("room:state", result.room);
+      broadcastRoomState(io, rooms, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies TeamActionResponse);
     });
 
@@ -143,7 +156,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
         return;
       }
 
-      io.to(roomCode).emit("room:state", result.room);
+      broadcastRoomState(io, rooms, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies CaptainActionResponse);
     });
 
@@ -160,7 +173,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
         return;
       }
 
-      io.to(roomCode).emit("room:state", result.room);
+      broadcastRoomState(io, rooms, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies SettingsActionResponse);
     });
 
@@ -177,8 +190,42 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
         return;
       }
 
-      io.to(roomCode).emit("room:state", result.room);
+      broadcastRoomState(io, rooms, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies GameStartResponse);
+    });
+
+    socket.on("game:start-round", (acknowledge) => {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies RoundStartResponse);
+        return;
+      }
+
+      const result = rooms.startRound(roomCode, socket.id);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+
+      broadcastRoomState(io, rooms, roomCode, result.room);
+      respond(acknowledge, { ok: true } satisfies RoundStartResponse);
+    });
+
+    socket.on("game:card-action", (payload, acknowledge) => {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies CardActionResponse);
+        return;
+      }
+
+      const result = rooms.cardAction(roomCode, socket.id, payload);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+
+      broadcastRoomState(io, rooms, roomCode, result.room);
+      respond(acknowledge, { ok: true } satisfies CardActionResponse);
     });
 
     socket.on("disconnect", () => {
@@ -189,7 +236,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
 
       const room = rooms.removePlayer(roomCode, socket.id);
       if (room) {
-        io.to(roomCode).emit("room:state", room);
+        broadcastRoomState(io, rooms, roomCode, room);
       }
     });
   });
@@ -198,7 +245,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
 export function advanceRoomTurn(io: TabuServer, rooms: RoomManager, roomCode: string): RoomState | null {
   const room = rooms.advanceTurn(roomCode);
   if (room) {
-    io.to(roomCode).emit("room:state", room);
+    broadcastRoomState(io, rooms, roomCode, room);
   }
   return room;
 }

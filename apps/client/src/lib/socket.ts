@@ -2,10 +2,14 @@ import { useSyncExternalStore } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
   CaptainActionResponse,
+  CardActionPayload,
+  CardActionResponse,
   ClientToServerEvents,
   GameStartResponse,
+  PersonalGameView,
   RoomActionResponse,
   RoomState,
+  RoundStartResponse,
   SettingsActionResponse,
   SetCaptainPayload,
   ServerToClientEvents,
@@ -20,16 +24,27 @@ export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
 );
 
 let activeRoom: RoomState | null = null;
+const EMPTY_GAME_VIEW: PersonalGameView = { roundId: null, cardVersion: null, currentCard: null };
+let personalGameView: PersonalGameView = EMPTY_GAME_VIEW;
 const unassignedRoomStates = new Map<string, RoomState>();
 const roomStateListeners = new Set<() => void>();
+const gameViewListeners = new Set<() => void>();
 
 function notifyRoomStateListeners(): void {
   roomStateListeners.forEach((listener) => listener());
 }
 
 function setActiveRoom(room: RoomState | null): void {
+  if (!room || room.game.phase !== "round-active" || room.game.roundId !== activeRoom?.game.roundId) {
+    setPersonalGameView(EMPTY_GAME_VIEW);
+  }
   activeRoom = room;
   notifyRoomStateListeners();
+}
+
+function setPersonalGameView(view: PersonalGameView): void {
+  personalGameView = view;
+  gameViewListeners.forEach((listener) => listener());
 }
 
 socket.on("room:state", (room) => {
@@ -37,6 +52,14 @@ socket.on("room:state", (room) => {
     setActiveRoom(room);
   } else if (!activeRoom) {
     unassignedRoomStates.set(room.code, room);
+  }
+});
+
+socket.on("game:view", (view) => {
+  if (activeRoom?.game.phase === "round-active" && activeRoom.game.roundId === view.roundId) {
+    setPersonalGameView(view);
+  } else if (view.currentCard === null) {
+    setPersonalGameView(EMPTY_GAME_VIEW);
   }
 });
 
@@ -132,6 +155,22 @@ export function startGame(): Promise<GameStartResponse> {
   );
 }
 
+export function startRound(): Promise<RoundStartResponse> {
+  return requestLobbyAction<RoundStartResponse>(
+    (acknowledge) => socket.emit("game:start-round", acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+export function sendCardAction(payload: CardActionPayload): Promise<CardActionResponse> {
+  return requestLobbyAction<CardActionResponse>(
+    (acknowledge) => socket.emit("game:card-action", payload, acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
 function requestLobbyAction<Response>(
   emit: (acknowledge: (response: Response) => void) => void,
   unavailableResponse: Response,
@@ -163,4 +202,15 @@ function requestLobbyAction<Response>(
 
 export function useRoomState(): RoomState | null {
   return useSyncExternalStore(subscribeToRoomState, getActiveRoom, getActiveRoom);
+}
+
+export function usePersonalGameView(): PersonalGameView {
+  return useSyncExternalStore(
+    (listener) => {
+      gameViewListeners.add(listener);
+      return () => { gameViewListeners.delete(listener); };
+    },
+    () => personalGameView,
+    () => EMPTY_GAME_VIEW
+  );
 }

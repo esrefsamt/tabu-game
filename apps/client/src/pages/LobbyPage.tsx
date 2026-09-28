@@ -1,17 +1,23 @@
 import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import type {
+  CardAction,
+  CardActionError,
   CaptainActionError,
   GameStartError,
   PassLimit,
   Player,
   RoomState,
+  RoundStartError,
   RoundDurationSeconds,
   SettingsActionError,
   Team,
   TeamActionError
 } from "@tabu/shared";
-import { changeTeam, setCaptain, socket, startGame, updateRoomSettings, useRoomState } from "../lib/socket";
+import {
+  changeTeam, sendCardAction, setCaptain, socket, startGame, startRound,
+  updateRoomSettings, usePersonalGameView, useRoomState
+} from "../lib/socket";
 
 const ROUND_DURATIONS: RoundDurationSeconds[] = [30, 45, 60, 90, 120];
 const PASS_LIMITS: PassLimit[] = [0, 1, 2, 3, 4, 5, 10];
@@ -90,6 +96,39 @@ function gameStartErrorMessage(error: GameStartError): string {
   }
 }
 
+function roundStartErrorMessage(error: RoundStartError): string {
+  switch (error) {
+    case "not-in-room": return "Oda bağlantısı bulunamadı.";
+    case "round-not-ready": return "Tur henüz başlatılamıyor.";
+    case "not-clue-giver": return "Turu yalnızca sıradaki anlatıcı başlatabilir.";
+    case "team-unavailable": return "Takımlardan birinde oyuncu kalmadı.";
+    case "server-unavailable": return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
+    case "request-timeout": return "Sunucudan yanıt alınamadı. Lütfen tekrar dene.";
+  }
+}
+
+function cardActionErrorMessage(error: CardActionError): string {
+  switch (error) {
+    case "not-in-room": return "Oda bağlantısı bulunamadı.";
+    case "round-not-active": return "Tur sona erdi.";
+    case "invalid-action": return "Geçersiz kart işlemi.";
+    case "not-authorized": return "Bu işlem için yetkin yok.";
+    case "pass-limit-reached": return "Pas hakkın kalmadı.";
+    case "stale-card": return "Kart değişti. Güncel kartı kullan.";
+    case "server-unavailable": return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
+    case "request-timeout": return "Sunucudan yanıt alınamadı. Lütfen tekrar dene.";
+  }
+}
+
+function ScoreBoard({ scores }: { scores: RoomState["game"]["scores"] }) {
+  return (
+    <div className="score-board" aria-label="Takım puanları">
+      <p>Takım A: <strong>{scores.A}</strong></p>
+      <p>Takım B: <strong>{scores.B}</strong></p>
+    </div>
+  );
+}
+
 function TeamPlayerList({
   players,
   captainId,
@@ -120,10 +159,21 @@ function TeamPlayerList({
 }
 
 function GamePreparationScreen({ room }: { room: RoomState }) {
+  const [roundError, setRoundError] = useState("");
+  const [roundPending, setRoundPending] = useState(false);
   const teamAPlayers = room.players.filter((player) => player.team === "A");
   const teamBPlayers = room.players.filter((player) => player.team === "B");
   const clueGiver = room.players.find((player) => player.id === room.game.clueGiverId);
   const activeTeamLabel = room.game.activeTeam === "A" ? "Takım A" : "Takım B";
+  const isClueGiver = room.game.clueGiverId === socket.id;
+
+  async function handleStartRound() {
+    setRoundError("");
+    setRoundPending(true);
+    const response = await startRound();
+    if (!response.ok) setRoundError(roundStartErrorMessage(response.error));
+    setRoundPending(false);
+  }
 
   return (
     <main className="page-shell lobby-shell">
@@ -133,6 +183,8 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
           <p className="eyebrow">Oyun hazırlığı</p>
           <h1 id="game-screen-title">TABU</h1>
         </header>
+
+        <ScoreBoard scores={room.game.scores} />
 
         {room.game.phase === "unable-to-continue" ? (
           <p className="game-unavailable-message" role="alert">
@@ -161,6 +213,102 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
           <p>Pas hakkı: <strong>{room.settings.passLimit}</strong></p>
         </section>
         {room.game.phase === "turn-preparation" && <p className="lobby-hint">Tura hazırlanılıyor</p>}
+        {room.game.phase === "turn-preparation" && isClueGiver && (
+          <div className="start-game-controls">
+            <button className="button button-primary" disabled={roundPending} onClick={() => void handleStartRound()} type="button">
+              {roundPending ? "Başlatılıyor…" : "Turu Başlat"}
+            </button>
+            {roundError && <p className="validation-message" role="alert">{roundError}</p>}
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function RoundScreen({ room }: { room: RoomState }) {
+  const view = usePersonalGameView();
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [actionPending, setActionPending] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const currentPlayer = room.players.find((player) => player.id === socket.id);
+  const clueGiver = room.players.find((player) => player.id === room.game.clueGiverId);
+  const activeTeam = room.game.activeTeam;
+  const isClueGiver = socket.id === room.game.clueGiverId;
+  const opposingCaptainId = activeTeam === "A" ? room.captainBId : room.captainAId;
+  const isOpposingCaptain = currentPlayer?.id === opposingCaptainId && currentPlayer?.team !== activeTeam;
+  const isActiveTeammate = currentPlayer?.team === activeTeam && !isClueGiver;
+  const canSeeCard = isClueGiver ||
+    ((currentPlayer?.team === "A" || currentPlayer?.team === "B") && currentPlayer.team !== activeTeam);
+  const visibleCard = canSeeCard && view.roundId === room.game.roundId ? view.currentCard : null;
+  const cardVersion = visibleCard ? view.cardVersion : null;
+  const passesRemaining = Math.max(0, room.settings.passLimit - room.game.passesUsed);
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      setRemainingSeconds(Math.max(0, Math.ceil(((room.game.roundEndsAt ?? Date.now()) - Date.now()) / 1000)));
+    };
+    updateCountdown();
+    const interval = window.setInterval(updateCountdown, 250);
+    return () => window.clearInterval(interval);
+  }, [room.game.roundEndsAt]);
+
+  useEffect(() => { setActionError(""); }, [view.cardVersion]);
+
+  async function act(action: CardAction) {
+    if (cardVersion === null || actionPending) return;
+    setActionError("");
+    setActionPending(true);
+    const response = await sendCardAction({ action, cardVersion });
+    if (!response.ok) setActionError(cardActionErrorMessage(response.error));
+    setActionPending(false);
+  }
+
+  return (
+    <main className="page-shell lobby-shell">
+      <section className="game-card" aria-labelledby="round-title">
+        <header className="lobby-header">
+          <div className="brand-mark lobby-brand" aria-hidden="true">T</div>
+          <p className="eyebrow">Aktif tur</p>
+          <h1 id="round-title">TABU</h1>
+        </header>
+        <ScoreBoard scores={room.game.scores} />
+        <div className="round-summary">
+          <p className="active-team-label">Sıra: Takım {activeTeam}</p>
+          <p className="clue-giver-name">Anlatıcı: <strong>{clueGiver?.name ?? "Oyuncu bulunamadı"}</strong></p>
+          <p className="round-countdown" aria-live="off">Süre: <strong>{remainingSeconds}</strong></p>
+        </div>
+
+        {isActiveTeammate ? (
+          <div className="card-hidden-message">
+            <strong>Anlatıcını dinle!</strong>
+            <p>Kelime sadece anlatıcı ve rakip takım tarafından görülebilir.</p>
+          </div>
+        ) : visibleCard ? (
+          <article className="tabu-card" aria-label="Tabu kartı">
+            <h2>{visibleCard.word}</h2>
+            <ul>{visibleCard.forbiddenWords.map((word) => <li key={word}>{word}</li>)}</ul>
+          </article>
+        ) : (
+          <p className="card-loading">Kart bekleniyor…</p>
+        )}
+
+        {isClueGiver && (
+          <div className="round-controls">
+            <div className="round-buttons">
+              <button className="button button-primary" disabled={actionPending || cardVersion === null} onClick={() => void act("correct")} type="button">Doğru</button>
+              <button className="button button-secondary" disabled={actionPending || cardVersion === null || passesRemaining === 0} onClick={() => void act("pass")} type="button">Pas</button>
+              <button className="button button-secondary" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">Tabu</button>
+            </div>
+            <p className="passes-remaining">Kalan pas: {passesRemaining}</p>
+          </div>
+        )}
+        {!isClueGiver && isOpposingCaptain && (
+          <div className="round-controls">
+            <button className="button button-secondary" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">Tabu</button>
+          </div>
+        )}
+        {actionError && <p className="validation-message round-error" role="alert">{actionError}</p>}
       </section>
     </main>
   );
@@ -189,6 +337,10 @@ function LobbyPage() {
 
   if (!room || room.code !== roomCode.toUpperCase()) {
     return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}`} replace />;
+  }
+
+  if (room.game.phase === "round-active") {
+    return <RoundScreen room={room} />;
   }
 
   if (room.game.phase !== "lobby") {

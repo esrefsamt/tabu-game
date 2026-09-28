@@ -17,14 +17,30 @@ export interface RoomSettings {
   passLimit: PassLimit;
 }
 
-export type GamePhase = "lobby" | "turn-preparation" | "unable-to-continue";
+export type GamePhase = "lobby" | "turn-preparation" | "round-active" | "unable-to-continue";
 export type GameStateError = "team-empty";
+export type CardAction = "correct" | "pass" | "tabu";
+
+export interface TeamScores {
+  A: number;
+  B: number;
+}
 
 export interface PublicGameState {
   phase: GamePhase;
   activeTeam: Team | null;
   clueGiverId: string | null;
   error: GameStateError | null;
+  scores: TeamScores;
+  roundId: number | null;
+  roundEndsAt: number | null;
+  passesUsed: number;
+}
+
+export interface PersonalGameView {
+  roundId: number | null;
+  cardVersion: number | null;
+  currentCard: TabuCard | null;
 }
 
 export interface Player {
@@ -128,6 +144,33 @@ export type GameStartError =
 
 export type GameStartResponse = { ok: true } | { ok: false; error: GameStartError };
 
+export type RoundStartError =
+  | "not-in-room"
+  | "round-not-ready"
+  | "not-clue-giver"
+  | "team-unavailable"
+  | "server-unavailable"
+  | "request-timeout";
+
+export type RoundStartResponse = { ok: true } | { ok: false; error: RoundStartError };
+
+export interface CardActionPayload {
+  action: CardAction;
+  cardVersion: number;
+}
+
+export type CardActionError =
+  | "not-in-room"
+  | "round-not-active"
+  | "invalid-action"
+  | "not-authorized"
+  | "pass-limit-reached"
+  | "stale-card"
+  | "server-unavailable"
+  | "request-timeout";
+
+export type CardActionResponse = { ok: true } | { ok: false; error: CardActionError };
+
 export interface ClientToServerEvents {
   "room:create": (
     payload: CreateRoomPayload,
@@ -150,10 +193,16 @@ export interface ClientToServerEvents {
     acknowledge: (response: SettingsActionResponse) => void
   ) => void;
   "game:start": (acknowledge: (response: GameStartResponse) => void) => void;
+  "game:start-round": (acknowledge: (response: RoundStartResponse) => void) => void;
+  "game:card-action": (
+    payload: CardActionPayload,
+    acknowledge: (response: CardActionResponse) => void
+  ) => void;
 }
 
 export interface ServerToClientEvents {
   "room:state": (room: RoomState) => void;
+  "game:view": (view: PersonalGameView) => void;
 }
 
 export interface InterServerEvents {}

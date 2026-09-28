@@ -1,17 +1,21 @@
 import { randomInt } from "node:crypto";
 import type {
+  CardActionError,
   CaptainActionError,
   GameStartError,
+  PersonalGameView,
   Player,
   PublicGameState,
   RoomSettings,
   RoomState,
+  RoundStartError,
   RoundDurationSeconds,
   SettingsActionError,
   TeamActionError
 } from "@tabu/shared";
 import { RoomDeckStore } from "../cards/RoomDeckStore.js";
 import { TurnEngine } from "../game/TurnEngine.js";
+import { RoundEngine, systemRoundClock, type RoundClock } from "../game/RoundEngine.js";
 
 const ROOM_CODE_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const ROOM_CODE_LENGTH = 6;
@@ -26,7 +30,11 @@ const LOBBY_GAME_STATE: PublicGameState = {
   phase: "lobby",
   activeTeam: null,
   clueGiverId: null,
-  error: null
+  error: null,
+  scores: { A: 0, B: 0 },
+  roundId: null,
+  roundEndsAt: null,
+  passesUsed: 0
 };
 
 interface Room {
@@ -58,10 +66,26 @@ export type GameStartResult =
   | { ok: true; room: RoomState }
   | { ok: false; error: GameStartError };
 
+export type RoundStartResult =
+  | { ok: true; room: RoomState }
+  | { ok: false; error: RoundStartError };
+
+export type CardActionResult =
+  | { ok: true; room: RoomState }
+  | { ok: false; error: CardActionError };
+
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
   private readonly decks = new RoomDeckStore();
   private readonly turnEngines = new Map<string, TurnEngine>();
+  private readonly roundEngines = new Map<string, RoundEngine>();
+  private statePublisher: ((roomCode: string, room: RoomState) => void) | null = null;
+
+  constructor(private readonly roundClock: RoundClock = systemRoundClock) {}
+
+  setStatePublisher(publisher: (roomCode: string, room: RoomState) => void): void {
+    this.statePublisher = publisher;
+  }
 
   createRoom(playerId: string, name: string): RoomState {
     const code = this.createUniqueCode();
@@ -230,13 +254,112 @@ export class RoomManager {
     }
 
     this.turnEngines.set(roomCode, new TurnEngine(teamAPlayerIds, teamBPlayerIds));
+    this.roundEngines.set(roomCode, new RoundEngine(
+      () => this.decks.draw(roomCode),
+      () => {
+        const currentRoom = this.rooms.get(roomCode);
+        const turns = this.turnEngines.get(roomCode);
+        if (currentRoom && turns) {
+          turns.advanceTurn();
+          this.statePublisher?.(roomCode, this.toRoomState(currentRoom));
+        }
+      },
+      this.roundClock
+    ));
     return { ok: true, room: this.toRoomState(room) };
+  }
+
+  startRound(roomCode: string, requesterId: string): RoundStartResult {
+    const room = this.rooms.get(roomCode);
+    if (!room?.players.has(requesterId)) {
+      return { ok: false, error: "not-in-room" };
+    }
+
+    const turns = this.turnEngines.get(roomCode);
+    const round = this.roundEngines.get(roomCode);
+    const turnState = turns?.publicState;
+    if (turnState?.phase === "unable-to-continue") {
+      return { ok: false, error: "team-unavailable" };
+    }
+    if (turnState?.phase !== "turn-preparation" || !round || round.isActive) {
+      return { ok: false, error: "round-not-ready" };
+    }
+    if (turnState.clueGiverId !== requesterId) {
+      return { ok: false, error: "not-clue-giver" };
+    }
+    if (!room.players.size || !["A", "B"].every((team) =>
+      [...room.players.values()].some((player) => player.team === team))) {
+      return { ok: false, error: "team-unavailable" };
+    }
+
+    round.start(room.settings.roundDurationSeconds);
+    return { ok: true, room: this.toRoomState(room) };
+  }
+
+  cardAction(roomCode: string, requesterId: string, payload: unknown): CardActionResult {
+    const room = this.rooms.get(roomCode);
+    const player = room?.players.get(requesterId);
+    if (!room || !player) {
+      return { ok: false, error: "not-in-room" };
+    }
+
+    const turns = this.turnEngines.get(roomCode);
+    const round = this.roundEngines.get(roomCode);
+    if (!turns || !round?.isActive || round.expireIfDue()) {
+      return { ok: false, error: "round-not-active" };
+    }
+    if (!isExactRecord(payload, ["action", "cardVersion"]) ||
+        (payload.action !== "correct" && payload.action !== "pass" && payload.action !== "tabu") ||
+        typeof payload.cardVersion !== "number" || !Number.isSafeInteger(payload.cardVersion) ||
+        payload.cardVersion < 1) {
+      return { ok: false, error: "invalid-action" };
+    }
+
+    const turnState = turns.publicState;
+    const activeTeam = turnState.activeTeam;
+    if (!activeTeam) {
+      return { ok: false, error: "round-not-active" };
+    }
+    const isClueGiver = turnState.clueGiverId === requesterId;
+    const opposingCaptainId = activeTeam === "A" ? room.captainBId : room.captainAId;
+    const canCallTabu = isClueGiver || (requesterId === opposingCaptainId && player.team !== activeTeam);
+    if (payload.action === "tabu" ? !canCallTabu : !isClueGiver) {
+      return { ok: false, error: "not-authorized" };
+    }
+
+    const result = round.applyAction(payload.action, payload.cardVersion, activeTeam, room.settings.passLimit);
+    if (!result.ok) {
+      return result;
+    }
+    return { ok: true, room: this.toRoomState(room) };
+  }
+
+  getPersonalGameView(roomCode: string, playerId: string): PersonalGameView | null {
+    const room = this.rooms.get(roomCode);
+    const player = room?.players.get(playerId);
+    if (!room || !player) {
+      return null;
+    }
+
+    const round = this.roundEngines.get(roomCode);
+    const turnState = this.turnEngines.get(roomCode)?.publicState;
+    if (!round?.isActive || !turnState?.activeTeam) {
+      return { roundId: null, cardVersion: null, currentCard: null };
+    }
+
+    const canSeeCard = playerId === turnState.clueGiverId ||
+      (player.team !== null && player.team !== turnState.activeTeam);
+    return {
+      roundId: round.publicState.roundId,
+      cardVersion: canSeeCard ? round.cardVersion : null,
+      currentCard: canSeeCard ? round.currentCard : null
+    };
   }
 
   advanceTurn(roomCode: string): RoomState | null {
     const room = this.rooms.get(roomCode);
     const engine = this.turnEngines.get(roomCode);
-    if (!room || !engine) {
+    if (!room || !engine || this.roundEngines.get(roomCode)?.isActive) {
       return null;
     }
 
@@ -251,13 +374,24 @@ export class RoomManager {
     }
 
     if (room.players.size === 0) {
+      this.roundEngines.get(roomCode)?.dispose();
+      this.roundEngines.delete(roomCode);
       this.rooms.delete(roomCode);
       this.decks.remove(roomCode);
       this.turnEngines.delete(roomCode);
       return null;
     }
 
-    this.turnEngines.get(roomCode)?.removePlayer(playerId);
+    const turns = this.turnEngines.get(roomCode);
+    const round = this.roundEngines.get(roomCode);
+    const wasActiveClueGiver = round?.isActive && turns?.publicState.clueGiverId === playerId;
+    const turnState = turns?.removePlayer(playerId);
+    if (round?.isActive && (wasActiveClueGiver || turnState?.phase === "unable-to-continue")) {
+      round.abort();
+      if (turnState?.phase !== "unable-to-continue") {
+        turns?.advanceTurn();
+      }
+    }
 
     if (room.captainAId === playerId) {
       room.captainAId = null;
@@ -293,12 +427,23 @@ export class RoomManager {
   }
 
   private toRoomState(room: Room): RoomState {
+    const turnState = this.turnEngines.get(room.code)?.publicState;
+    const round = this.roundEngines.get(room.code);
+    const roundState = round?.publicState;
+    const game: PublicGameState = turnState ? {
+      ...turnState,
+      phase: round?.isActive ? "round-active" : turnState.phase,
+      scores: roundState?.scores ?? { A: 0, B: 0 },
+      roundId: roundState?.roundId ?? null,
+      roundEndsAt: roundState?.roundEndsAt ?? null,
+      passesUsed: roundState?.passesUsed ?? 0
+    } : { ...LOBBY_GAME_STATE, scores: { ...LOBBY_GAME_STATE.scores } };
     return {
       code: room.code,
       captainAId: room.captainAId,
       captainBId: room.captainBId,
       settings: { ...room.settings },
-      game: this.turnEngines.get(room.code)?.publicState ?? { ...LOBBY_GAME_STATE },
+      game,
       players: [...room.players.values()].map((player) => ({
         ...player,
         isHost: player.id === room.hostId

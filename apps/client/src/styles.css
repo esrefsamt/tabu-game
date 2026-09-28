@@ -208,6 +208,26 @@ input:focus { border-color: #7b9d89; box-shadow: 0 0 0 3px rgba(84, 125, 106, 0.
 .game-settings p { margin: 0; color: var(--text-soft); font-size: 13px; }
 .game-settings strong { color: #303732; }
 .game-unavailable-message { margin: 0 0 18px; padding: 14px; border: 1px solid #ead5d3; border-radius: 10px; background: #fbf4f3; color: #944b45; text-align: center; font-size: 14px; }
+.score-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.score-board p { margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: #fbfcfb; color: #46564b; text-align: center; font-size: 14px; }
+.score-board strong { color: #253b2e; font-size: 20px; font-variant-numeric: tabular-nums; }
+.round-summary { padding: 15px; border: 1px solid #dfe9e2; border-radius: 12px; background: #f6faf7; text-align: center; }
+.round-countdown { margin: 12px 0 0; color: var(--accent-dark); font-size: 15px; font-weight: 700; }
+.round-countdown strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+.tabu-card { margin-top: 18px; overflow: hidden; border: 1px solid #dfe3de; border-radius: 14px; background: #fff; text-align: center; }
+.tabu-card h2 { margin: 0; padding: 17px 12px; background: #edf3ef; color: #2d4937; font-size: 25px; letter-spacing: 0.04em; }
+.tabu-card ul { display: grid; gap: 9px; margin: 0; padding: 18px; list-style: none; }
+.tabu-card li { color: #414843; font-size: 17px; font-weight: 600; }
+.card-hidden-message, .card-loading { margin-top: 18px; padding: 26px 18px; border: 1px solid var(--border); border-radius: 12px; background: #fbfcfb; color: #46564b; text-align: center; }
+.card-hidden-message p { margin: 10px 0 0; color: var(--text-soft); font-size: 13px; }
+.card-loading { font-size: 14px; }
+.round-controls { margin-top: 18px; text-align: center; }
+.round-controls > .button { min-width: 140px; margin: 0; }
+.round-buttons { display: flex; justify-content: center; gap: 10px; }
+.round-buttons .button { flex: 1; min-width: 0; margin: 0; }
+.round-buttons .button:disabled, .round-controls > .button:disabled { cursor: not-allowed; }
+.passes-remaining { margin: 12px 0 0; color: var(--text-soft); font-size: 13px; }
+.round-error { text-align: center; }
 .lobby-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .section-heading h2 { margin: 0; font-size: 15px; font-weight: 700; }
@@ -231,6 +251,8 @@ input:focus { border-color: #7b9d89; box-shadow: 0 0 0 3px rgba(84, 125, 106, 0.
   .team-choice { width: 100%; }
   .captain-readonly, .settings-readonly { grid-template-columns: 1fr; }
   .game-settings { flex-direction: column; align-items: center; gap: 8px; }
+  .round-buttons { gap: 6px; }
+  .round-buttons .button { font-size: 12px; }
   .room-share { align-items: flex-start; }
   .room-code { font-size: 21px; }
   .copy-button { padding: 0 10px; font-size: 12px; }

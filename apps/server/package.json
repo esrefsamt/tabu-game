@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "tsx --test src/cards/cards.test.ts src/game/TurnEngine.test.ts src/rooms/RoomManager.test.ts",
+    "test": "tsx --test src/cards/cards.test.ts src/game/RoundEngine.test.ts src/game/TurnEngine.test.ts src/rooms/RoomManager.test.ts src/rooms/RoomManager.round.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

@@ -1,12 +1,14 @@
 import type { PublicGameState, Team } from "@tabu/shared";
 
+type TurnState = Pick<PublicGameState, "phase" | "activeTeam" | "clueGiverId" | "error">;
+
 type TeamPlayers = Record<Team, string[]>;
 type TeamIndexes = Record<Team, number>;
 
 export class TurnEngine {
   private readonly teamPlayers: TeamPlayers;
   private readonly nextIndexes: TeamIndexes = { A: 0, B: 0 };
-  private gameState: PublicGameState;
+  private gameState: TurnState;
 
   constructor(teamAPlayerIds: readonly string[], teamBPlayerIds: readonly string[]) {
     if (teamAPlayerIds.length === 0 || teamBPlayerIds.length === 0) {
@@ -22,11 +24,11 @@ export class TurnEngine {
     };
   }
 
-  get publicState(): PublicGameState {
+  get publicState(): TurnState {
     return { ...this.gameState };
   }
 
-  advanceTurn(): PublicGameState {
+  advanceTurn(): TurnState {
     if (this.gameState.phase !== "turn-preparation" || !this.gameState.activeTeam) {
       return this.publicState;
     }
@@ -46,7 +48,7 @@ export class TurnEngine {
     return this.publicState;
   }
 
-  removePlayer(playerId: string): PublicGameState {
+  removePlayer(playerId: string): TurnState {
     const team = this.teamOf(playerId);
     if (!team) {
       return this.publicState;
