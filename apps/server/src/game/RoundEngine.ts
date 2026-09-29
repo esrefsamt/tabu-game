@@ -15,7 +15,7 @@ export const systemRoundClock: RoundClock = {
 };
 
 export type RoundActionResult =
-  | { ok: true }
+  | { ok: true; consumedWord: string; reachedTarget: boolean }
   | { ok: false; error: "round-not-active" | "stale-card" | "pass-limit-reached" };
 
 export class RoundEngine {
@@ -79,8 +79,14 @@ export class RoundEngine {
     this.timer = this.clock.setTimeout(() => this.finish(), durationSeconds * 1000);
   }
 
-  applyAction(action: CardAction, cardVersion: number, activeTeam: Team, passLimit: number): RoundActionResult {
-    if (!this.isActive) {
+  applyAction(
+    action: CardAction,
+    cardVersion: number,
+    activeTeam: Team,
+    passLimit: number,
+    targetScore: number
+  ): RoundActionResult {
+    if (!this.isActive || !this.currentCardValue) {
       return { ok: false, error: "round-not-active" };
     }
     if (this.expireIfDue()) {
@@ -93,6 +99,8 @@ export class RoundEngine {
       return { ok: false, error: "pass-limit-reached" };
     }
 
+    const consumedWord = this.currentCardValue.word;
+
     if (action === "correct") {
       this.scores[activeTeam] += 1;
     } else if (action === "pass") {
@@ -101,9 +109,14 @@ export class RoundEngine {
       this.scores[activeTeam] -= 1;
     }
 
+    if (this.scores[activeTeam] >= targetScore) {
+      this.clearCurrentRound();
+      return { ok: true, consumedWord, reachedTarget: true };
+    }
+
     this.currentCardValue = this.drawNextCard();
     this.cardVersionValue += 1;
-    return { ok: true };
+    return { ok: true, consumedWord, reachedTarget: false };
   }
 
   expireIfDue(): boolean {

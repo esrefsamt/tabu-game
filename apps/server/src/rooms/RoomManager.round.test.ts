@@ -13,8 +13,8 @@ function prepareGame(passLimit: 0 | 1 | 2 | 3 | 4 | 5 | 10 = 3) {
   for (const id of ["a2", "b1", "b2"]) {
     assert.equal(rooms.joinRoom(id, id.toUpperCase(), code).ok, true);
   }
-  for (const id of ["a1", "a2"]) assert.equal(rooms.setPlayerTeam(code, id, "A").ok, true);
-  for (const id of ["b1", "b2"]) assert.equal(rooms.setPlayerTeam(code, id, "B").ok, true);
+  for (const id of ["a1", "a2"]) assert.equal(rooms.movePlayer(code, "a1", { playerId: id, team: "A" }).ok, true);
+  for (const id of ["b1", "b2"]) assert.equal(rooms.movePlayer(code, "a1", { playerId: id, team: "B" }).ok, true);
   assert.equal(rooms.setCaptain(code, "a1", { team: "A", captainId: "a2" }).ok, true);
   assert.equal(rooms.setCaptain(code, "a1", { team: "B", captainId: "b1" }).ok, true);
   assert.equal(rooms.updateSettings(code, "a1", { setting: "roundDurationSeconds", value: 30 }).ok, true);
@@ -52,8 +52,8 @@ test("Team A clue giver and every Team B player see only the current card", () =
   const captainView = rooms.getPersonalGameView(code, "b1")!;
   const opponentView = rooms.getPersonalGameView(code, "b2")!;
   assert.equal(clueView.currentCard?.forbiddenWords.length, 5);
-  assert.equal(teammateView.currentCard, null);
-  assert.equal(teammateView.cardVersion, null);
+  assert.deepEqual(teammateView, { roundId: clueView.roundId, currentCard: null, cardVersion: null });
+  assert.equal(JSON.stringify(teammateView).includes(clueView.currentCard!.word), false);
   assert.deepEqual(captainView.currentCard, clueView.currentCard);
   assert.deepEqual(opponentView.currentCard, clueView.currentCard);
   assert.equal(state.game.roundId, clueView.roundId);
@@ -67,7 +67,12 @@ test("Correct adds one point and stale Correct or Tabu cannot score again", () =
   const { rooms, code, state } = startedRound();
   const firstView = rooms.getPersonalGameView(code, "a1")!;
   const version = firstView.cardVersion!;
-  assert.equal(rooms.cardAction(code, "a1", { action: "correct", cardVersion: version }).ok, true);
+  const correct = rooms.cardAction(code, "a1", { action: "correct", cardVersion: version });
+  assert.equal(correct.ok, true);
+  if (correct.ok) {
+    assert.deepEqual(correct.cardResult, { action: "correct", word: firstView.currentCard!.word });
+    assert.deepEqual(Object.keys(correct.cardResult).sort(), ["action", "word"]);
+  }
   const nextView = rooms.getPersonalGameView(code, "a1")!;
   assert.notEqual(nextView.currentCard?.id, firstView.currentCard?.id);
   assert.notEqual(nextView.cardVersion, version);
@@ -89,6 +94,8 @@ test("Pass consumes a pass but no score, and the configured limit is enforced", 
   const passed = rooms.cardAction(code, "a1", { action: "pass", cardVersion: version });
   assert.equal(passed.ok, true);
   if (passed.ok) {
+    assert.equal(passed.cardResult.word.length > 0, true);
+    assert.equal(passed.cardResult.action, "pass");
     assert.equal(passed.room.game.passesUsed, 1);
     assert.deepEqual(passed.room.game.scores, { A: 0, B: 0 });
   }
@@ -117,7 +124,10 @@ test("clue giver and opposing captain may call Tabu; other players cannot", () =
   });
   const selfTabu = rooms.cardAction(code, "a1", { action: "tabu", cardVersion: version });
   assert.equal(selfTabu.ok, true);
-  if (selfTabu.ok) assert.equal(selfTabu.room.game.scores.A, -1);
+  if (selfTabu.ok) {
+    assert.equal(selfTabu.room.game.scores.A, -1);
+    assert.equal(selfTabu.cardResult.action, "tabu");
+  }
   version = rooms.getPersonalGameView(code, "b1")!.cardVersion!;
   const captainTabu = rooms.cardAction(code, "b1", { action: "tabu", cardVersion: version });
   assert.equal(captainTabu.ok, true);

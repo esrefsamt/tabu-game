@@ -6,6 +6,8 @@ import type {
   CardActionResponse,
   ClientToServerEvents,
   GameStartResponse,
+  MovePlayerPayload,
+  MovePlayerResponse,
   PersonalGameView,
   RoomActionResponse,
   RoomState,
@@ -13,8 +15,6 @@ import type {
   SettingsActionResponse,
   SetCaptainPayload,
   ServerToClientEvents,
-  Team,
-  TeamActionResponse,
   UpdateRoomSettingsPayload
 } from "@tabu/shared";
 
@@ -123,9 +123,9 @@ export function joinRoom(name: string, roomCode: string): Promise<RoomActionResp
   });
 }
 
-export function changeTeam(team: Team): Promise<TeamActionResponse> {
-  return requestLobbyAction<TeamActionResponse>(
-    (acknowledge) => socket.emit("room:set-team", { team }, acknowledge),
+export function movePlayer(payload: MovePlayerPayload): Promise<MovePlayerResponse> {
+  return requestLobbyAction<MovePlayerResponse>(
+    (acknowledge) => socket.emit("room:move-player", payload, acknowledge),
     { ok: false, error: "server-unavailable" },
     { ok: false, error: "request-timeout" }
   );

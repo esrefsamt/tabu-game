@@ -5,6 +5,7 @@ export interface HealthResponse {
 export type Team = "A" | "B";
 export type RoundDurationSeconds = 30 | 45 | 60 | 90 | 120;
 export type PassLimit = 0 | 1 | 2 | 3 | 4 | 5 | 10;
+export type TargetScore = 10 | 15 | 20 | 25 | 30 | 40 | 50;
 
 export interface TabuCard {
   readonly id: string;
@@ -15,11 +16,17 @@ export interface TabuCard {
 export interface RoomSettings {
   roundDurationSeconds: RoundDurationSeconds;
   passLimit: PassLimit;
+  targetScore: TargetScore;
 }
 
-export type GamePhase = "lobby" | "turn-preparation" | "round-active" | "unable-to-continue";
+export type GamePhase = "lobby" | "turn-preparation" | "round-active" | "unable-to-continue" | "game-over";
 export type GameStateError = "team-empty";
 export type CardAction = "correct" | "pass" | "tabu";
+
+export interface CardResult {
+  action: CardAction;
+  word: string;
+}
 
 export interface TeamScores {
   A: number;
@@ -28,6 +35,7 @@ export interface TeamScores {
 
 export interface PublicGameState {
   phase: GamePhase;
+  winnerTeam: Team | null;
   activeTeam: Team | null;
   clueGiverId: string | null;
   error: GameStateError | null;
@@ -68,8 +76,9 @@ export interface JoinRoomPayload {
   roomCode: string;
 }
 
-export interface SetTeamPayload {
-  team: Team;
+export interface MovePlayerPayload {
+  playerId: string;
+  team: Team | null;
 }
 
 export interface SetCaptainPayload {
@@ -79,7 +88,8 @@ export interface SetCaptainPayload {
 
 export type UpdateRoomSettingsPayload =
   | { setting: "roundDurationSeconds"; value: RoundDurationSeconds }
-  | { setting: "passLimit"; value: PassLimit };
+  | { setting: "passLimit"; value: PassLimit }
+  | { setting: "targetScore"; value: TargetScore };
 
 export type RoomErrorCode =
   | "invalid-name"
@@ -95,16 +105,18 @@ export type RoomActionResponse =
   | { ok: true; room: RoomState }
   | { ok: false; error: RoomErrorCode };
 
-export type TeamActionError =
+export type MovePlayerError =
   | "invalid-team"
+  | "invalid-player"
   | "not-in-room"
+  | "not-host"
   | "game-already-started"
   | "server-unavailable"
   | "request-timeout";
 
-export type TeamActionResponse =
+export type MovePlayerResponse =
   | { ok: true }
-  | { ok: false; error: TeamActionError };
+  | { ok: false; error: MovePlayerError };
 
 export type CaptainActionError =
   | "invalid-team"
@@ -180,9 +192,9 @@ export interface ClientToServerEvents {
     payload: JoinRoomPayload,
     acknowledge: (response: RoomActionResponse) => void
   ) => void;
-  "room:set-team": (
-    payload: SetTeamPayload,
-    acknowledge: (response: TeamActionResponse) => void
+  "room:move-player": (
+    payload: MovePlayerPayload,
+    acknowledge: (response: MovePlayerResponse) => void
   ) => void;
   "room:set-captain": (
     payload: SetCaptainPayload,
@@ -203,6 +215,7 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   "room:state": (room: RoomState) => void;
   "game:view": (view: PersonalGameView) => void;
+  "game:card-result": (result: CardResult) => void;
 }
 
 export interface InterServerEvents {}

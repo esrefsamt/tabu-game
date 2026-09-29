@@ -5,6 +5,7 @@ import type {
   CaptainActionResponse,
   GameStartResponse,
   InterServerEvents,
+  MovePlayerResponse,
   RoomActionResponse,
   RoomErrorCode,
   RoomState,
@@ -12,7 +13,6 @@ import type {
   ServerToClientEvents,
   SettingsActionResponse,
   SocketData,
-  TeamActionResponse
 } from "@tabu/shared";
 import { RoomManager } from "../rooms/RoomManager.js";
 
@@ -121,26 +121,21 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
       respond(acknowledge, result);
     });
 
-    socket.on("room:set-team", (payload, acknowledge) => {
-      if (!isRecord(payload) || Object.keys(payload).length !== 1 || !Object.hasOwn(payload, "team")) {
-        respond(acknowledge, { ok: false, error: "invalid-team" } satisfies TeamActionResponse);
-        return;
-      }
-
+    socket.on("room:move-player", (payload, acknowledge) => {
       const roomCode = socket.data.roomCode;
       if (!roomCode) {
-        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies TeamActionResponse);
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies MovePlayerResponse);
         return;
       }
 
-      const result = rooms.setPlayerTeam(roomCode, socket.id, payload.team);
+      const result = rooms.movePlayer(roomCode, socket.id, payload);
       if (!result.ok) {
         respond(acknowledge, result);
         return;
       }
 
       broadcastRoomState(io, rooms, roomCode, result.room);
-      respond(acknowledge, { ok: true } satisfies TeamActionResponse);
+      respond(acknowledge, { ok: true } satisfies MovePlayerResponse);
     });
 
     socket.on("room:set-captain", (payload, acknowledge) => {
@@ -224,6 +219,7 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
         return;
       }
 
+      io.to(roomCode).emit("game:card-result", result.cardResult);
       broadcastRoomState(io, rooms, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies CardActionResponse);
     });

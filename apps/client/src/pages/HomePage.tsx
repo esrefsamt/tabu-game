@@ -74,12 +74,31 @@ function HomePage() {
   }
 
   return (
-    <main className="page-shell">
-      <section className="welcome-card" aria-labelledby="game-title">
-        <div className="brand-mark" aria-hidden="true">T</div>
-        <p className="eyebrow">Arkadaşlarla oyun zamanı</p>
-        <h1 id="game-title">TABU</h1>
-        <p className="subtitle">Arkadaşlarınla çevrimiçi Tabu oyna</p>
+    <main className="page-shell home-shell">
+      <div className="home-layout">
+        <section className="home-intro" aria-labelledby="game-title">
+          <p className="eyebrow">ARKADAŞLARINLA OYUN ZAMANI</p>
+          <h1 className="brand-logo" id="game-title">TABU<span>!</span></h1>
+          <p className="home-headline">Kelimeler yasak,<br /><em>eğlence serbest.</em></p>
+          <p className="subtitle">Arkadaşlarınla çevrimiçi Tabu oyna. Odanı kur, linki paylaş, oyuna başla.</p>
+          <div className="home-card-stack" aria-hidden="true">
+            <div className="home-demo-card home-demo-card-back" />
+            <div className="home-demo-card home-demo-card-front">
+              <span>ANLAT</span>
+              <strong>MACERA</strong>
+              <i>heyecan · keşif · yolculuk</i>
+            </div>
+          </div>
+        </section>
+
+      <section className="welcome-card" aria-labelledby="entry-title">
+        <div className="form-heading">
+          <span className="form-heading-icon" aria-hidden="true">✦</span>
+          <div>
+            <p className="section-overline">OYUN MASASINA HOŞ GELDİN</p>
+            <h2 id="entry-title">Bir oda aç, herkesi topla.</h2>
+          </div>
+        </div>
 
         <form className="room-form" onSubmit={handleCreateRoom} noValidate>
           <label htmlFor="player-name">Oyuncu adın</label>
@@ -95,7 +114,7 @@ function HomePage() {
             value={playerName}
           />
           {error && <p className="validation-message" role="alert">{error}</p>}
-          <button className="button button-primary" disabled={pending} type="submit">
+          <button className="button button-primary create-button" disabled={pending} type="submit">
             {pending ? "Bağlanıyor…" : "Oda Oluştur"}
           </button>
         </form>
@@ -116,11 +135,12 @@ function HomePage() {
             placeholder="Örn. ABC234"
             value={roomCode}
           />
-          <button className="button button-secondary" disabled={pending} type="submit">
+          <button className="button button-secondary join-button" disabled={pending} type="submit">
             {pending ? "Bağlanıyor…" : "Odaya Katıl"}
           </button>
         </form>
       </section>
+      </div>
       <p className="page-note">Kelimeyi anlat, yasaklı kelimelere dikkat et.</p>
     </main>
   );

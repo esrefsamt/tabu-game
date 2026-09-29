@@ -5,6 +5,8 @@ import type {
   CardActionError,
   CaptainActionError,
   GameStartError,
+  MovePlayerError,
+  MovePlayerPayload,
   PassLimit,
   Player,
   RoomState,
@@ -12,22 +14,30 @@ import type {
   RoundDurationSeconds,
   SettingsActionError,
   Team,
-  TeamActionError
+  TargetScore,
+  UpdateRoomSettingsPayload
 } from "@tabu/shared";
 import {
-  changeTeam, sendCardAction, setCaptain, socket, startGame, startRound,
+  movePlayer, sendCardAction, setCaptain, socket, startGame, startRound,
   updateRoomSettings, usePersonalGameView, useRoomState
 } from "../lib/socket";
+import CensoredCard from "../components/CensoredCard";
+import LobbyTeamBoard from "../components/LobbyTeamBoard";
 
 const ROUND_DURATIONS: RoundDurationSeconds[] = [30, 45, 60, 90, 120];
 const PASS_LIMITS: PassLimit[] = [0, 1, 2, 3, 4, 5, 10];
+const TARGET_SCORES: TargetScore[] = [10, 15, 20, 25, 30, 40, 50];
 
-function teamErrorMessage(error: TeamActionError): string {
+function moveErrorMessage(error: MovePlayerError): string {
   switch (error) {
     case "invalid-team":
-      return "Takım seçimi geçersiz.";
+      return "Hedef takım geçersiz.";
+    case "invalid-player":
+      return "Oyuncu bu odada bulunamadı.";
     case "not-in-room":
       return "Oda bağlantısı bulunamadı. Lütfen odaya yeniden katıl.";
+    case "not-host":
+      return "Oyuncuları yalnızca oda sahibi taşıyabilir.";
     case "game-already-started":
       return "Oyun başladıktan sonra takım değiştirilemez.";
     case "server-unavailable":
@@ -88,7 +98,7 @@ function gameStartErrorMessage(error: GameStartError): string {
     case "captains-required":
       return "Her iki takım için kaptan seçilmelidir.";
     case "players-unassigned":
-      return "Tüm oyuncular bir takım seçmelidir.";
+      return "Oyuna başlamadan önce oda sahibi tüm oyuncuları takımlara yerleştirmeli.";
     case "server-unavailable":
       return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
     case "request-timeout":
@@ -120,12 +130,47 @@ function cardActionErrorMessage(error: CardActionError): string {
   }
 }
 
-function ScoreBoard({ scores }: { scores: RoomState["game"]["scores"] }) {
+function ScoreBoard({ scores, activeTeam, targetScore }: {
+  scores: RoomState["game"]["scores"];
+  activeTeam: Team | null;
+  targetScore: TargetScore;
+}) {
   return (
-    <div className="score-board" aria-label="Takım puanları">
-      <p>Takım A: <strong>{scores.A}</strong></p>
-      <p>Takım B: <strong>{scores.B}</strong></p>
+    <div className="score-area">
+      <div className="score-board" aria-label="Takım puanları">
+        <div className={`score-team score-team-a${activeTeam === "A" ? " score-team-active" : ""}`}>
+          <span>TAKIM A</span><strong>{scores.A}</strong>
+        </div>
+        <div className={`score-team score-team-b${activeTeam === "B" ? " score-team-active" : ""}`}>
+          <span>TAKIM B</span><strong>{scores.B}</strong>
+        </div>
+      </div>
+      <p className="target-score-label">Hedef puan: <strong>{targetScore}</strong></p>
     </div>
+  );
+}
+
+function WinnerScreen({ room }: { room: RoomState }) {
+  const winner = room.game.winnerTeam;
+  if (winner === null) return null;
+  return (
+    <main className="page-shell lobby-shell">
+      <section className={`game-card winner-screen winner-team-${winner}`} aria-labelledby="winner-title">
+        <header className="lobby-header">
+          <p className="eyebrow">OYUN SONA ERDİ</p>
+          <h1 className="brand-logo brand-logo-game">TABU<span>!</span></h1>
+        </header>
+        <div className="winner-hero">
+          <span className="winner-trophy" aria-hidden="true">🏆</span>
+          <p className="turn-kicker">TEBRİKLER!</p>
+          <h2 id="winner-title">TAKIM {winner} KAZANDI!</h2>
+          <p>Hedef puana ilk ulaşan takım kazandı.</p>
+        </div>
+        <ScoreBoard scores={room.game.scores} activeTeam={winner} targetScore={room.settings.targetScore} />
+        <p className="winner-final-label">FİNAL SKORU</p>
+        <p className="winner-final-score">{room.game.scores.A} <span>–</span> {room.game.scores.B}</p>
+      </section>
+    </main>
   );
 }
 
@@ -146,6 +191,7 @@ function TeamPlayerList({
     <ul className="player-list team-player-list">
       {players.map((player) => (
         <li className="player-row" key={player.id}>
+          <span className="game-player-avatar" aria-hidden="true">{player.name.trim().charAt(0).toLocaleUpperCase("tr-TR")}</span>
           <span className="player-name">{player.name}</span>
           <span className="player-badges">
             {player.isHost && <span className="host-badge" aria-label="Oda sahibi">★ Host</span>}
@@ -179,12 +225,11 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
     <main className="page-shell lobby-shell">
       <section className="game-card" aria-labelledby="game-screen-title">
         <header className="lobby-header">
-          <div className="brand-mark lobby-brand" aria-hidden="true">T</div>
-          <p className="eyebrow">Oyun hazırlığı</p>
-          <h1 id="game-screen-title">TABU</h1>
+          <p className="eyebrow">SIRADAKİ TUR</p>
+          <h1 className="brand-logo brand-logo-game" id="game-screen-title">TABU<span>!</span></h1>
         </header>
 
-        <ScoreBoard scores={room.game.scores} />
+        <ScoreBoard scores={room.game.scores} activeTeam={room.game.activeTeam} targetScore={room.settings.targetScore} />
 
         {room.game.phase === "unable-to-continue" ? (
           <p className="game-unavailable-message" role="alert">
@@ -192,8 +237,9 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
           </p>
         ) : (
           <section className="turn-summary" aria-live="polite">
-            <p className="active-team-label">Sıra: {activeTeamLabel}</p>
-            <p className="clue-giver-name">Anlatıcı: <strong>{clueGiver?.name ?? "Oyuncu bulunamadı"}</strong></p>
+            <p className="turn-kicker">HAZIRLIK ZAMANI</p>
+            <p className="active-team-label">Sıra {activeTeamLabel}{room.game.activeTeam === "A" ? "'da" : "'de"}</p>
+            <p className="clue-giver-name">Anlatıcı <strong>{clueGiver?.name ?? "Oyuncu bulunamadı"}</strong></p>
           </section>
         )}
 
@@ -211,6 +257,7 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
         <section className="game-settings" aria-label="Oyun ayarları">
           <p>Tur süresi: <strong>{room.settings.roundDurationSeconds} saniye</strong></p>
           <p>Pas hakkı: <strong>{room.settings.passLimit}</strong></p>
+          <p>Hedef puan: <strong>{room.settings.targetScore}</strong></p>
         </section>
         {room.game.phase === "turn-preparation" && <p className="lobby-hint">Tura hazırlanılıyor</p>}
         {room.game.phase === "turn-preparation" && isClueGiver && (
@@ -268,26 +315,27 @@ function RoundScreen({ room }: { room: RoomState }) {
     <main className="page-shell lobby-shell">
       <section className="game-card" aria-labelledby="round-title">
         <header className="lobby-header">
-          <div className="brand-mark lobby-brand" aria-hidden="true">T</div>
-          <p className="eyebrow">Aktif tur</p>
-          <h1 id="round-title">TABU</h1>
+          <p className="eyebrow">OYUN DEVAM EDİYOR</p>
+          <h1 className="brand-logo brand-logo-game" id="round-title">TABU<span>!</span></h1>
         </header>
-        <ScoreBoard scores={room.game.scores} />
-        <div className="round-summary">
-          <p className="active-team-label">Sıra: Takım {activeTeam}</p>
-          <p className="clue-giver-name">Anlatıcı: <strong>{clueGiver?.name ?? "Oyuncu bulunamadı"}</strong></p>
-          <p className="round-countdown" aria-live="off">Süre: <strong>{remainingSeconds}</strong></p>
+        <ScoreBoard scores={room.game.scores} activeTeam={activeTeam} targetScore={room.settings.targetScore} />
+        <div className={`round-summary round-team-${activeTeam}`}>
+          <div>
+            <p className="turn-kicker">ŞİMDİ ANLATIYOR</p>
+            <p className="active-team-label">Takım {activeTeam}</p>
+            <p className="clue-giver-name">Anlatıcı <strong>{clueGiver?.name ?? "Oyuncu bulunamadı"}</strong></p>
+          </div>
+          <div className={`round-countdown${remainingSeconds <= 10 ? " round-countdown-low" : ""}`} aria-label={`Kalan süre ${remainingSeconds} saniye`}>
+            <strong>{remainingSeconds}</strong><span>SANİYE</span>
+          </div>
         </div>
 
         {isActiveTeammate ? (
-          <div className="card-hidden-message">
-            <strong>Anlatıcını dinle!</strong>
-            <p>Kelime sadece anlatıcı ve rakip takım tarafından görülebilir.</p>
-          </div>
+          <CensoredCard />
         ) : visibleCard ? (
           <article className="tabu-card" aria-label="Tabu kartı">
-            <h2>{visibleCard.word}</h2>
-            <ul>{visibleCard.forbiddenWords.map((word) => <li key={word}>{word}</li>)}</ul>
+            <div className="tabu-card-top"><p>ANLATILACAK KELİME</p><h2>{visibleCard.word}</h2></div>
+            <div className="tabu-card-words"><p>SÖYLEME!</p><ul>{visibleCard.forbiddenWords.map((word) => <li key={word}>{word}</li>)}</ul></div>
           </article>
         ) : (
           <p className="card-loading">Kart bekleniyor…</p>
@@ -296,16 +344,16 @@ function RoundScreen({ room }: { room: RoomState }) {
         {isClueGiver && (
           <div className="round-controls">
             <div className="round-buttons">
-              <button className="button button-primary" disabled={actionPending || cardVersion === null} onClick={() => void act("correct")} type="button">Doğru</button>
-              <button className="button button-secondary" disabled={actionPending || cardVersion === null || passesRemaining === 0} onClick={() => void act("pass")} type="button">Pas</button>
-              <button className="button button-secondary" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">Tabu</button>
+              <button className="button button-correct" disabled={actionPending || cardVersion === null} onClick={() => void act("correct")} type="button">✓ Doğru</button>
+              <button className="button button-pass" disabled={actionPending || cardVersion === null || passesRemaining === 0} onClick={() => void act("pass")} type="button">→ Pas</button>
+              <button className="button button-tabu" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
             </div>
             <p className="passes-remaining">Kalan pas: {passesRemaining}</p>
           </div>
         )}
         {!isClueGiver && isOpposingCaptain && (
           <div className="round-controls">
-            <button className="button button-secondary" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">Tabu</button>
+            <button className="button button-tabu" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
           </div>
         )}
         {actionError && <p className="validation-message round-error" role="alert">{actionError}</p>}
@@ -318,8 +366,8 @@ function LobbyPage() {
   const { roomCode = "" } = useParams();
   const room = useRoomState();
   const [copyMessage, setCopyMessage] = useState("");
-  const [teamError, setTeamError] = useState("");
-  const [teamPending, setTeamPending] = useState(false);
+  const [moveError, setMoveError] = useState("");
+  const [movePending, setMovePending] = useState(false);
   const [captainError, setCaptainError] = useState("");
   const [captainPending, setCaptainPending] = useState(false);
   const [settingsError, setSettingsError] = useState("");
@@ -335,6 +383,10 @@ function LobbyPage() {
     return () => window.clearTimeout(timer);
   }, [copyMessage]);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [room?.game.phase]);
+
   if (!room || room.code !== roomCode.toUpperCase()) {
     return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}`} replace />;
   }
@@ -343,26 +395,31 @@ function LobbyPage() {
     return <RoundScreen room={room} />;
   }
 
+  if (room.game.phase === "game-over") {
+    return <WinnerScreen room={room} />;
+  }
+
   if (room.game.phase !== "lobby") {
     return <GamePreparationScreen room={room} />;
   }
 
   const teamAPlayers = room.players.filter((player) => player.team === "A");
   const teamBPlayers = room.players.filter((player) => player.team === "B");
-  const unassignedPlayers = room.players.filter((player) => player.team === null);
   const currentPlayer = room.players.find((player) => player.id === socket.id);
   const isHost = currentPlayer?.isHost ?? false;
   const captainA = room.players.find((player) => player.id === room.captainAId);
   const captainB = room.players.find((player) => player.id === room.captainBId);
 
-  async function selectTeam(team: Team) {
-    setTeamError("");
-    setTeamPending(true);
-    const response = await changeTeam(team);
+  async function handleMove(payload: MovePlayerPayload) {
+    setMoveError("");
+    setMovePending(true);
+    const response = await movePlayer(payload);
     if (!response.ok) {
-      setTeamError(teamErrorMessage(response.error));
+      setMoveError(moveErrorMessage(response.error));
+    } else {
+      setGameStartError("");
     }
-    setTeamPending(false);
+    setMovePending(false);
   }
 
   async function selectCaptain(team: Team, captainId: string | null) {
@@ -371,15 +428,13 @@ function LobbyPage() {
     const response = await setCaptain({ team, captainId });
     if (!response.ok) {
       setCaptainError(captainErrorMessage(response.error));
+    } else {
+      setGameStartError("");
     }
     setCaptainPending(false);
   }
 
-  async function changeSetting(
-    payload:
-      | { setting: "roundDurationSeconds"; value: RoundDurationSeconds }
-      | { setting: "passLimit"; value: PassLimit }
-  ) {
+  async function changeSetting(payload: UpdateRoomSettingsPayload) {
     setSettingsError("");
     setSettingsPending(true);
     const response = await updateRoomSettings(payload);
@@ -413,6 +468,13 @@ function LobbyPage() {
     }
   }
 
+  function handleTargetScoreChange(value: string) {
+    const targetScore = TARGET_SCORES.find((option) => String(option) === value);
+    if (targetScore !== undefined) {
+      void changeSetting({ setting: "targetScore", value: targetScore });
+    }
+  }
+
   async function copyRoomLink() {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -424,84 +486,38 @@ function LobbyPage() {
 
   return (
     <main className="page-shell lobby-shell">
-      <section className="lobby-card" aria-labelledby="lobby-title">
-        <div className="lobby-header">
-          <div className="brand-mark lobby-brand" aria-hidden="true">T</div>
-          <p className="eyebrow">Oda lobisi</p>
-          <h1 id="lobby-title">TABU</h1>
-        </div>
-
-        <div className="room-share">
+      <div className="lobby-layout">
+        <header className="lobby-top">
           <div>
-            <p className="section-label">Oda kodu</p>
-            <p className="room-code">{room.code}</p>
+            <p className="eyebrow">ARKADAŞLARINLA TABU</p>
+            <h1 className="brand-logo brand-logo-small" id="lobby-title">TABU<span>!</span></h1>
+            <p className="lobby-top-subtitle">Oda hazır. Takımları kur, kaptanları seç ve oyunu başlat.</p>
           </div>
-          <button className="button button-secondary copy-button" onClick={copyRoomLink} type="button">
-            Linki Kopyala
-          </button>
-        </div>
+          <div className="room-share">
+            <div>
+              <p className="section-label">ODA KODU</p>
+              <p className="room-code">{room.code}</p>
+            </div>
+            <button className="button button-secondary copy-button" onClick={copyRoomLink} type="button">
+              Linki Kopyala
+            </button>
+          </div>
+        </header>
         <p className="copy-message" aria-live="polite">{copyMessage}</p>
 
-        <div className="players-heading">
-          <h2>Oyuncular ({room.players.length}/10)</h2>
-        </div>
-
-        <div className="team-grid">
-          <section className={`team-panel${currentPlayer?.team === "A" ? " team-panel-selected" : ""}`} aria-labelledby="team-a-title">
-            <div className="team-panel-heading">
-              <h3 id="team-a-title">Takım A</h3>
-              <span>{teamAPlayers.length}</span>
+        <section className="lobby-board-section" aria-labelledby="players-title">
+          <div className="section-heading">
+            <div>
+              <p className="section-overline">LOBI</p>
+              <h2 id="players-title">Oyuncular <span className="heading-count">{room.players.length}/10</span></h2>
             </div>
-            <TeamPlayerList players={teamAPlayers} captainId={room.captainAId} />
-          </section>
-          <section className={`team-panel${currentPlayer?.team === "B" ? " team-panel-selected" : ""}`} aria-labelledby="team-b-title">
-            <div className="team-panel-heading">
-              <h3 id="team-b-title">Takım B</h3>
-              <span>{teamBPlayers.length}</span>
-            </div>
-            <TeamPlayerList players={teamBPlayers} captainId={room.captainBId} />
-          </section>
-        </div>
-
-        <section className="unassigned-panel" aria-labelledby="unassigned-title">
-          <div className="team-panel-heading">
-            <h3 id="unassigned-title">Takım Seçmedi</h3>
-            <span>{unassignedPlayers.length}</span>
+            <p className="section-note">{isHost ? "Oyuncu kartlarını takımlara sürükle." : "Takımları oda sahibi düzenliyor."}</p>
           </div>
-          <TeamPlayerList players={unassignedPlayers} captainId={null} />
+          <LobbyTeamBoard room={room} isHost={isHost} movePending={movePending} onMove={handleMove} />
+          {moveError && <p className="validation-message" role="alert">{moveError}</p>}
         </section>
 
-        <div className="team-selection">
-          <p className="team-current" aria-live="polite">
-            {currentPlayer?.team === "A"
-              ? "Sen Takım A'dasın."
-              : currentPlayer?.team === "B"
-                ? "Sen Takım B'desin."
-                : "Henüz bir takım seçmedin."}
-          </p>
-          <div className="team-buttons">
-            <button
-              aria-pressed={currentPlayer?.team === "A"}
-              className={`button team-choice${currentPlayer?.team === "A" ? " team-choice-selected" : ""}`}
-              disabled={teamPending || currentPlayer?.team === "A"}
-              onClick={() => void selectTeam("A")}
-              type="button"
-            >
-              Takım A'ya Katıl
-            </button>
-            <button
-              aria-pressed={currentPlayer?.team === "B"}
-              className={`button team-choice${currentPlayer?.team === "B" ? " team-choice-selected" : ""}`}
-              disabled={teamPending || currentPlayer?.team === "B"}
-              onClick={() => void selectTeam("B")}
-              type="button"
-            >
-              Takım B'ye Katıl
-            </button>
-          </div>
-          {teamError && <p className="validation-message" role="alert">{teamError}</p>}
-        </div>
-
+        <div className="lobby-config-grid">
         <section className="lobby-section" aria-labelledby="captain-section-title">
           <div className="section-heading">
             <h2 id="captain-section-title">Takım Kaptanları</h2>
@@ -572,18 +588,36 @@ function LobbyPage() {
                   {PASS_LIMITS.map((limit) => <option key={limit} value={limit}>{limit}</option>)}
                 </select>
               </div>
+              <div className="control-field">
+                <label htmlFor="target-score">Hedef puan</label>
+                <select
+                  disabled={settingsPending}
+                  id="target-score"
+                  onChange={(event) => handleTargetScoreChange(event.target.value)}
+                  value={room.settings.targetScore}
+                >
+                  {TARGET_SCORES.map((score) => <option key={score} value={score}>{score}</option>)}
+                </select>
+              </div>
             </div>
           ) : (
             <div className="settings-readonly">
               <p>Tur süresi: <strong>{room.settings.roundDurationSeconds} saniye</strong></p>
               <p>Pas hakkı: <strong>{room.settings.passLimit}</strong></p>
+              <p>Hedef puan: <strong>{room.settings.targetScore}</strong></p>
             </div>
           )}
           {settingsError && <p className="validation-message" role="alert">{settingsError}</p>}
         </section>
+        </div>
 
-        <p className="lobby-hint">Arkadaşlarını davet et, katılmalarını bekle.</p>
-        {isHost && (
+        <section className="lobby-start-panel">
+          <div>
+            <p className="section-overline">HAZIR MISINIZ?</p>
+            <h2>Herkes yerini aldı mı?</h2>
+            <p>{isHost ? "İki takımda da oyuncu ve kaptan olduğunda oyunu başlatabilirsin." : "Oda sahibinin oyunu başlatmasını bekle."}</p>
+          </div>
+          {isHost && (
           <div className="start-game-controls">
             <button
               className="button button-primary"
@@ -595,8 +629,9 @@ function LobbyPage() {
             </button>
             {gameStartError && <p className="validation-message" role="alert">{gameStartError}</p>}
           </div>
-        )}
-      </section>
+          )}
+        </section>
+      </div>
     </main>
   );
 }

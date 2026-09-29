@@ -9,12 +9,14 @@ test("room state keeps Phase 4 lobby features and never includes private deck st
 
   assert.equal(created.settings.roundDurationSeconds, 60);
   assert.equal(created.settings.passLimit, 3);
+  assert.equal(created.settings.targetScore, 30);
   assert.equal(created.captainAId, null);
   assert.equal(created.captainBId, null);
   assert.equal(Object.hasOwn(created, "deck"), false);
   assert.equal(Object.hasOwn(created, "cards"), false);
   assert.deepEqual(created.game, {
     phase: "lobby",
+    winnerTeam: null,
     activeTeam: null,
     clueGiverId: null,
     error: null,
@@ -28,8 +30,8 @@ test("room state keeps Phase 4 lobby features and never includes private deck st
   assert.equal(joined.ok, true);
   if (!joined.ok) return;
 
-  assert.equal(rooms.setPlayerTeam(roomCode, "host", "A").ok, true);
-  assert.equal(rooms.setPlayerTeam(roomCode, "guest", "B").ok, true);
+  assert.equal(rooms.movePlayer(roomCode, "host", { playerId: "host", team: "A" }).ok, true);
+  assert.equal(rooms.movePlayer(roomCode, "host", { playerId: "guest", team: "B" }).ok, true);
   assert.equal(rooms.setCaptain(roomCode, "host", { team: "A", captainId: "host" }).ok, true);
   assert.equal(rooms.setCaptain(roomCode, "host", { team: "B", captainId: "guest" }).ok, true);
   assert.equal(
@@ -38,7 +40,7 @@ test("room state keeps Phase 4 lobby features and never includes private deck st
   );
   assert.equal(rooms.updateSettings(roomCode, "host", { setting: "passLimit", value: 5 }).ok, true);
 
-  const switched = rooms.setPlayerTeam(roomCode, "guest", "A");
+  const switched = rooms.movePlayer(roomCode, "host", { playerId: "guest", team: "A" });
   assert.equal(switched.ok, true);
   if (switched.ok) {
     assert.equal(switched.room.captainBId, null);
@@ -61,8 +63,8 @@ function createStartableRoom(): { rooms: RoomManager; code: string } {
   const room = rooms.createRoom("host", "Host");
   const joined = rooms.joinRoom("guest", "Guest", room.code);
   assert.equal(joined.ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "host", "A").ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "guest", "B").ok, true);
+  assert.equal(rooms.movePlayer(room.code, "host", { playerId: "host", team: "A" }).ok, true);
+  assert.equal(rooms.movePlayer(room.code, "host", { playerId: "guest", team: "B" }).ok, true);
   assert.equal(rooms.setCaptain(room.code, "host", { team: "A", captainId: "host" }).ok, true);
   assert.equal(rooms.setCaptain(room.code, "host", { team: "B", captainId: "guest" }).ok, true);
   return { rooms, code: room.code };
@@ -98,7 +100,7 @@ test("a game cannot start with an empty team", () => {
   const rooms = new RoomManager();
   const room = rooms.createRoom("host", "Host");
   assert.equal(rooms.joinRoom("guest", "Guest", room.code).ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "host", "A").ok, true);
+  assert.equal(rooms.movePlayer(room.code, "host", { playerId: "host", team: "A" }).ok, true);
   assert.deepEqual(rooms.startGame(room.code, "host"), { ok: false, error: "teams-incomplete" });
 });
 
@@ -106,8 +108,8 @@ test("a game cannot start without both team captains", () => {
   const rooms = new RoomManager();
   const room = rooms.createRoom("host", "Host");
   assert.equal(rooms.joinRoom("guest", "Guest", room.code).ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "host", "A").ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "guest", "B").ok, true);
+  assert.equal(rooms.movePlayer(room.code, "host", { playerId: "host", team: "A" }).ok, true);
+  assert.equal(rooms.movePlayer(room.code, "host", { playerId: "guest", team: "B" }).ok, true);
   assert.deepEqual(rooms.startGame(room.code, "host"), { ok: false, error: "captains-required" });
 });
 
@@ -120,7 +122,7 @@ test("a game cannot start while any player is unassigned", () => {
 test("team, captain, and settings changes are rejected after game start", () => {
   const { rooms, code } = createStartableRoom();
   assert.equal(rooms.startGame(code, "host").ok, true);
-  assert.deepEqual(rooms.setPlayerTeam(code, "host", "B"), {
+  assert.deepEqual(rooms.movePlayer(code, "host", { playerId: "host", team: "B" }), {
     ok: false,
     error: "game-already-started"
   });
@@ -149,9 +151,9 @@ test("host transfer during a game does not change the turn order", () => {
   const room = rooms.createRoom("old-host", "Old Host");
   assert.equal(rooms.joinRoom("team-b", "Team B", room.code).ok, true);
   assert.equal(rooms.joinRoom("team-a", "Team A", room.code).ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "old-host", "B").ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "team-a", "A").ok, true);
-  assert.equal(rooms.setPlayerTeam(room.code, "team-b", "B").ok, true);
+  assert.equal(rooms.movePlayer(room.code, "old-host", { playerId: "old-host", team: "B" }).ok, true);
+  assert.equal(rooms.movePlayer(room.code, "old-host", { playerId: "team-a", team: "A" }).ok, true);
+  assert.equal(rooms.movePlayer(room.code, "old-host", { playerId: "team-b", team: "B" }).ok, true);
   assert.equal(rooms.setCaptain(room.code, "old-host", { team: "A", captainId: "team-a" }).ok, true);
   assert.equal(rooms.setCaptain(room.code, "old-host", { team: "B", captainId: "team-b" }).ok, true);
   assert.equal(rooms.startGame(room.code, "old-host").ok, true);

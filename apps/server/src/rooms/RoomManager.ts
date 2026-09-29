@@ -1,8 +1,10 @@
 import { randomInt } from "node:crypto";
 import type {
   CardActionError,
+  CardResult,
   CaptainActionError,
   GameStartError,
+  MovePlayerError,
   PersonalGameView,
   Player,
   PublicGameState,
@@ -11,7 +13,8 @@ import type {
   RoundStartError,
   RoundDurationSeconds,
   SettingsActionError,
-  TeamActionError
+  TargetScore,
+  Team,
 } from "@tabu/shared";
 import { RoomDeckStore } from "../cards/RoomDeckStore.js";
 import { TurnEngine } from "../game/TurnEngine.js";
@@ -22,12 +25,15 @@ const ROOM_CODE_LENGTH = 6;
 const MAX_PLAYERS = 10;
 const ROUND_DURATIONS: readonly RoundDurationSeconds[] = [30, 45, 60, 90, 120];
 const PASS_LIMITS = [0, 1, 2, 3, 4, 5, 10] as const;
+const TARGET_SCORES: readonly TargetScore[] = [10, 15, 20, 25, 30, 40, 50];
 const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   roundDurationSeconds: 60,
-  passLimit: 3
+  passLimit: 3,
+  targetScore: 30
 };
 const LOBBY_GAME_STATE: PublicGameState = {
   phase: "lobby",
+  winnerTeam: null,
   activeTeam: null,
   clueGiverId: null,
   error: null,
@@ -44,15 +50,16 @@ interface Room {
   captainAId: string | null;
   captainBId: string | null;
   settings: RoomSettings;
+  winnerTeam: Team | null;
 }
 
 export type JoinRoomResult =
   | { ok: true; room: RoomState }
   | { ok: false; error: "invalid-room-code" | "room-not-found" | "room-full" | "game-already-started" };
 
-export type TeamChangeResult =
+export type MovePlayerResult =
   | { ok: true; room: RoomState }
-  | { ok: false; error: TeamActionError };
+  | { ok: false; error: MovePlayerError };
 
 export type CaptainChangeResult =
   | { ok: true; room: RoomState }
@@ -71,7 +78,7 @@ export type RoundStartResult =
   | { ok: false; error: RoundStartError };
 
 export type CardActionResult =
-  | { ok: true; room: RoomState }
+  | { ok: true; room: RoomState; cardResult: CardResult }
   | { ok: false; error: CardActionError };
 
 export class RoomManager {
@@ -95,7 +102,8 @@ export class RoomManager {
       players: new Map([[playerId, { id: playerId, name, team: null }]]),
       captainAId: null,
       captainBId: null,
-      settings: { ...DEFAULT_ROOM_SETTINGS }
+      settings: { ...DEFAULT_ROOM_SETTINGS },
+      winnerTeam: null
     };
 
     this.rooms.set(code, room);
@@ -126,25 +134,34 @@ export class RoomManager {
     return { ok: true, room: this.toRoomState(room) };
   }
 
-  setPlayerTeam(roomCode: string, playerId: string, requestedTeam: unknown): TeamChangeResult {
-    if (requestedTeam !== "A" && requestedTeam !== "B") {
-      return { ok: false, error: "invalid-team" };
-    }
-
+  movePlayer(roomCode: string, requesterId: string, payload: unknown): MovePlayerResult {
     const room = this.rooms.get(roomCode);
-    const player = room?.players.get(playerId);
-    if (!room || !player) {
+    if (!room?.players.has(requesterId)) {
       return { ok: false, error: "not-in-room" };
+    }
+    if (room.hostId !== requesterId) {
+      return { ok: false, error: "not-host" };
     }
     if (this.turnEngines.has(roomCode)) {
       return { ok: false, error: "game-already-started" };
     }
 
-    player.team = requestedTeam;
-    if (requestedTeam !== "A" && room.captainAId === playerId) {
+    if (!isExactRecord(payload, ["playerId", "team"]) || typeof payload.playerId !== "string") {
+      return { ok: false, error: "invalid-player" };
+    }
+    if (payload.team !== "A" && payload.team !== "B" && payload.team !== null) {
+      return { ok: false, error: "invalid-team" };
+    }
+    const player = room.players.get(payload.playerId);
+    if (!player) {
+      return { ok: false, error: "invalid-player" };
+    }
+
+    player.team = payload.team;
+    if (payload.team !== "A" && room.captainAId === payload.playerId) {
       room.captainAId = null;
     }
-    if (requestedTeam !== "B" && room.captainBId === playerId) {
+    if (payload.team !== "B" && room.captainBId === payload.playerId) {
       room.captainBId = null;
     }
     return { ok: true, room: this.toRoomState(room) };
@@ -208,6 +225,8 @@ export class RoomManager {
       room.settings.roundDurationSeconds = payload.value;
     } else if (payload.setting === "passLimit" && isPassLimit(payload.value)) {
       room.settings.passLimit = payload.value;
+    } else if (payload.setting === "targetScore" && isTargetScore(payload.value)) {
+      room.settings.targetScore = payload.value;
     } else {
       return { ok: false, error: "invalid-settings" };
     }
@@ -259,7 +278,7 @@ export class RoomManager {
       () => {
         const currentRoom = this.rooms.get(roomCode);
         const turns = this.turnEngines.get(roomCode);
-        if (currentRoom && turns) {
+        if (currentRoom && turns && currentRoom.winnerTeam === null) {
           turns.advanceTurn();
           this.statePublisher?.(roomCode, this.toRoomState(currentRoom));
         }
@@ -273,6 +292,9 @@ export class RoomManager {
     const room = this.rooms.get(roomCode);
     if (!room?.players.has(requesterId)) {
       return { ok: false, error: "not-in-room" };
+    }
+    if (room.winnerTeam !== null) {
+      return { ok: false, error: "round-not-ready" };
     }
 
     const turns = this.turnEngines.get(roomCode);
@@ -302,6 +324,9 @@ export class RoomManager {
     if (!room || !player) {
       return { ok: false, error: "not-in-room" };
     }
+    if (room.winnerTeam !== null) {
+      return { ok: false, error: "round-not-active" };
+    }
 
     const turns = this.turnEngines.get(roomCode);
     const round = this.roundEngines.get(roomCode);
@@ -327,11 +352,20 @@ export class RoomManager {
       return { ok: false, error: "not-authorized" };
     }
 
-    const result = round.applyAction(payload.action, payload.cardVersion, activeTeam, room.settings.passLimit);
+    const result = round.applyAction(
+      payload.action, payload.cardVersion, activeTeam, room.settings.passLimit, room.settings.targetScore
+    );
     if (!result.ok) {
       return result;
     }
-    return { ok: true, room: this.toRoomState(room) };
+    if (result.reachedTarget) {
+      room.winnerTeam = activeTeam;
+    }
+    return {
+      ok: true,
+      room: this.toRoomState(room),
+      cardResult: { action: payload.action, word: result.consumedWord }
+    };
   }
 
   getPersonalGameView(roomCode: string, playerId: string): PersonalGameView | null {
@@ -359,7 +393,7 @@ export class RoomManager {
   advanceTurn(roomCode: string): RoomState | null {
     const room = this.rooms.get(roomCode);
     const engine = this.turnEngines.get(roomCode);
-    if (!room || !engine || this.roundEngines.get(roomCode)?.isActive) {
+    if (!room || !engine || room.winnerTeam !== null || this.roundEngines.get(roomCode)?.isActive) {
       return null;
     }
 
@@ -385,7 +419,7 @@ export class RoomManager {
     const turns = this.turnEngines.get(roomCode);
     const round = this.roundEngines.get(roomCode);
     const wasActiveClueGiver = round?.isActive && turns?.publicState.clueGiverId === playerId;
-    const turnState = turns?.removePlayer(playerId);
+    const turnState = room.winnerTeam === null ? turns?.removePlayer(playerId) : undefined;
     if (round?.isActive && (wasActiveClueGiver || turnState?.phase === "unable-to-continue")) {
       round.abort();
       if (turnState?.phase !== "unable-to-continue") {
@@ -432,7 +466,10 @@ export class RoomManager {
     const roundState = round?.publicState;
     const game: PublicGameState = turnState ? {
       ...turnState,
-      phase: round?.isActive ? "round-active" : turnState.phase,
+      phase: room.winnerTeam !== null ? "game-over" : round?.isActive ? "round-active" : turnState.phase,
+      winnerTeam: room.winnerTeam,
+      activeTeam: room.winnerTeam !== null ? null : turnState.activeTeam,
+      clueGiverId: room.winnerTeam !== null ? null : turnState.clueGiverId,
       scores: roundState?.scores ?? { A: 0, B: 0 },
       roundId: roundState?.roundId ?? null,
       roundEndsAt: roundState?.roundEndsAt ?? null,
@@ -467,4 +504,8 @@ function isRoundDuration(value: unknown): value is RoundDurationSeconds {
 
 function isPassLimit(value: unknown): value is RoomSettings["passLimit"] {
   return typeof value === "number" && PASS_LIMITS.some((allowedValue) => allowedValue === value);
+}
+
+function isTargetScore(value: unknown): value is TargetScore {
+  return typeof value === "number" && TARGET_SCORES.some((allowedValue) => allowedValue === value);
 }
