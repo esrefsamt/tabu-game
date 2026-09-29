@@ -31,8 +31,9 @@ import { MEDIA_CARDS } from "./media.js";
 import { MISCELLANEOUS_CARDS } from "./miscellaneous.js";
 
 import type { TabuCard } from "@tabu/shared";
+import { CARD_FAMILIARITY_OVERRIDES } from "./cardFamiliarityOverrides.js";
 
-export const CARD_CATEGORIES = {
+export const SOURCE_CARD_CATEGORIES = {
   original: ORIGINAL_CARDS,
   food: FOOD_CARDS,
   animals: ANIMAL_CARDS,
@@ -65,5 +66,16 @@ export const CARD_CATEGORIES = {
   language: LANGUAGE_CARDS,
   arts: ARTS_CARDS
 } as const satisfies Record<string, readonly TabuCard[]>;
+
+function applyCardCleanup(cards: readonly TabuCard[]): readonly TabuCard[] {
+  return cards.map((card) => {
+    const replacement = CARD_FAMILIARITY_OVERRIDES[card.id as keyof typeof CARD_FAMILIARITY_OVERRIDES];
+    return replacement ? { ...card, ...replacement } : card;
+  });
+}
+
+export const CARD_CATEGORIES = Object.fromEntries(
+  Object.entries(SOURCE_CARD_CATEGORIES).map(([category, cards]) => [category, applyCardCleanup(cards)])
+) as { [Category in keyof typeof SOURCE_CARD_CATEGORIES]: readonly TabuCard[] };
 
 

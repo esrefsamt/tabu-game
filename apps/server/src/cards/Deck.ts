@@ -10,12 +10,23 @@ export class Deck {
   private position = 0;
   private usedCardIds = new Set<string>();
   private previousCardId: string | null = null;
+  private eligibleCards: readonly TabuCard[];
 
   constructor(
     private readonly cards: readonly TabuCard[] = TABU_CARDS,
     private readonly chooseIndex: RandomIndex = (maxExclusive) => randomInt(maxExclusive)
   ) {
     validateCards(cards);
+    this.eligibleCards = cards;
+  }
+
+  setEligibleCards(cards: readonly TabuCard[]): void {
+    if (cards.length === 0 || cards.some((card) => !this.cards.includes(card))) {
+      throw new Error("Eligible cards must be a nonempty subset of this deck.");
+    }
+    this.eligibleCards = cards;
+    this.shuffledCards = [];
+    this.position = 0;
   }
 
   draw(): TabuCard {
@@ -39,7 +50,11 @@ export class Deck {
   }
 
   private startNewCycle(): void {
-    const cards = [...this.cards];
+    let cards = this.eligibleCards.filter((card) => !this.usedCardIds.has(card.id));
+    if (cards.length === 0) {
+      for (const card of this.eligibleCards) this.usedCardIds.delete(card.id);
+      cards = [...this.eligibleCards];
+    }
     for (let index = cards.length - 1; index > 0; index -= 1) {
       const swapIndex = this.chooseIndex(index + 1);
       if (!Number.isInteger(swapIndex) || swapIndex < 0 || swapIndex > index) {
@@ -54,6 +69,5 @@ export class Deck {
 
     this.shuffledCards = cards;
     this.position = 0;
-    this.usedCardIds.clear();
   }
 }

@@ -29,6 +29,12 @@ export class RoomDeckStore {
     return deck.draw();
   }
 
+  setEligibleCards(roomCode: string, cards: readonly TabuCard[]): void {
+    const deck = this.decks.get(roomCode);
+    if (!deck) throw new Error(`No deck exists for room ${roomCode}.`);
+    deck.setEligibleCards(cards);
+  }
+
   remove(roomCode: string): void {
     this.decks.delete(roomCode);
   }

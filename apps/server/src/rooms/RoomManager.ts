@@ -18,6 +18,7 @@ import type {
   Team,
 } from "@tabu/shared";
 import { RoomDeckStore } from "../cards/RoomDeckStore.js";
+import { cardsForSelection, isValidCardSelection } from "../cards/playerCategories.js";
 import { TurnEngine } from "../game/TurnEngine.js";
 import { RoundEngine, systemRoundClock, type RoundClock } from "../game/RoundEngine.js";
 
@@ -30,7 +31,8 @@ const TARGET_SCORES: readonly TargetScore[] = [10, 15, 20, 25, 30, 40, 50];
 const DEFAULT_ROOM_SETTINGS: RoomSettings = {
   roundDurationSeconds: 60,
   passLimit: 3,
-  targetScore: 30
+  targetScore: 30,
+  cardSelection: { mode: "GENERAL" }
 };
 const LOBBY_GAME_STATE: PublicGameState = {
   phase: "lobby",
@@ -108,7 +110,7 @@ export class RoomManager {
       players: new Map([[playerId, { id: playerId, name, team: null }]]),
       captainAId: null,
       captainBId: null,
-      settings: { ...DEFAULT_ROOM_SETTINGS },
+      settings: { ...DEFAULT_ROOM_SETTINGS, cardSelection: { mode: "GENERAL" } },
       winnerTeam: null,
       lastCardVersion: 0
     };
@@ -234,6 +236,12 @@ export class RoomManager {
       room.settings.passLimit = payload.value;
     } else if (payload.setting === "targetScore" && isTargetScore(payload.value)) {
       room.settings.targetScore = payload.value;
+    } else if (payload.setting === "cardSelection" && isValidCardSelection(payload.value)) {
+      const selection = payload.value.mode === "GENERAL"
+        ? { mode: "GENERAL" } as const
+        : { mode: "CUSTOM" as const, categories: [...payload.value.categories] };
+      this.decks.setEligibleCards(roomCode, cardsForSelection(selection));
+      room.settings.cardSelection = selection;
     } else {
       return { ok: false, error: "invalid-settings" };
     }
@@ -516,7 +524,8 @@ export class RoomManager {
       code: room.code,
       captainAId: room.captainAId,
       captainBId: room.captainBId,
-      settings: { ...room.settings },
+      settings: { ...room.settings, cardSelection: room.settings.cardSelection.mode === "GENERAL"
+        ? { mode: "GENERAL" } : { mode: "CUSTOM", categories: [...room.settings.cardSelection.categories] } },
       game,
       players: [...room.players.values()].map((player) => ({
         ...player,

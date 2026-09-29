@@ -1,8 +1,17 @@
 import type { TabuCard } from "@tabu/shared";
 import { normalizeCardText } from "./validateCards.js";
+import { CARD_MULTIWORD_EXCEPTIONS } from "./cardWordExceptions.js";
+import { classifyCardDifficulty, POTENTIALLY_DIFFICULT_CARDS, type CardDifficulty } from "./cardFamiliarity.js";
 
 export interface CardQualityReport {
   total: number;
+  singleWordMainWordCount: number;
+  twoWordMainWordCount: number;
+  longerMainWordCount: number;
+  longerProperNameOrTitleCount: number;
+  multiWordMainWordCount: number;
+  difficultyCounts: Record<CardDifficulty, number>;
+  potentiallyTooObscure: { category: string; id: string; word: string; reason: string }[];
   categoryCounts: Record<string, number>;
   duplicateIds: string[];
   duplicateWords: string[];
@@ -38,17 +47,35 @@ export function inspectCardQuality(categories: Record<string, readonly TabuCard[
   const suspiciousNearDuplicates: string[] = [];
   const ids = new Map<string, string>();
   const words = new Map<string, string>();
+  let singleWordMainWordCount = 0;
+  let twoWordMainWordCount = 0;
+  let longerMainWordCount = 0;
+  let longerProperNameOrTitleCount = 0;
+  const difficultyCounts: Record<CardDifficulty, number> = { easy: 0, medium: 0, difficult: 0 };
+  const potentiallyTooObscure: CardQualityReport["potentiallyTooObscure"] = [];
   const cards = Object.entries(categories).flatMap(([category, entries]) => {
     categoryCounts[category] = entries.length;
-    return entries;
+    return entries.map((card) => ({ card, category }));
   });
 
-  for (const card of cards) {
+  for (const { card, category } of cards) {
     const idKey = card.id.trim().toLowerCase();
     if (ids.has(idKey)) duplicateIds.push(`${ids.get(idKey)} / ${card.id}`);
     ids.set(idKey, card.id);
 
     const wordKey = normalizeCardText(card.word);
+    const tokenCount = wordKey.split(" ").length;
+    if (tokenCount === 1) singleWordMainWordCount += 1;
+    else if (tokenCount === 2) twoWordMainWordCount += 1;
+    else {
+      longerMainWordCount += 1;
+      if (CARD_MULTIWORD_EXCEPTIONS[card.id]) longerProperNameOrTitleCount += 1;
+    }
+    difficultyCounts[classifyCardDifficulty(category, card)] += 1;
+    const familiarityReason = POTENTIALLY_DIFFICULT_CARDS[card.id];
+    if (familiarityReason) potentiallyTooObscure.push({
+      category, id: card.id, word: card.word, reason: familiarityReason
+    });
     if (words.has(wordKey)) duplicateWords.push(`${words.get(wordKey)} / ${card.word}`);
     words.set(wordKey, card.word);
 
@@ -91,5 +118,19 @@ export function inspectCardQuality(categories: Record<string, readonly TabuCard[
     if (left && right) suspiciousNearDuplicates.push(`${wordNames.get(left)} / ${wordNames.get(right)}`);
   }
 
-  return { total: cards.length, categoryCounts, duplicateIds, duplicateWords, invalidForbiddenWords, suspiciousNearDuplicates };
+  return {
+    total: cards.length,
+    singleWordMainWordCount,
+    twoWordMainWordCount,
+    longerMainWordCount,
+    longerProperNameOrTitleCount,
+    multiWordMainWordCount: twoWordMainWordCount + longerMainWordCount,
+    difficultyCounts,
+    potentiallyTooObscure,
+    categoryCounts,
+    duplicateIds,
+    duplicateWords,
+    invalidForbiddenWords,
+    suspiciousNearDuplicates
+  };
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CardResult } from "@tabu/shared";
 import { socket } from "../lib/socket";
+import { playSound } from "../lib/sound";
 
 interface Toast {
   id: number;
@@ -21,6 +22,7 @@ export default function CardResultToasts() {
     let nextId = 0;
     const timers = new Set<number>();
     const onResult = (result: CardResult) => {
+      playSound(result.action);
       const id = ++nextId;
       setToasts((current) => [...current, { id, result }]);
       const timer = window.setTimeout(() => {

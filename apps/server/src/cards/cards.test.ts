@@ -63,10 +63,24 @@ test("card validation rejects malformed words, forbidden lists, and duplicate va
 test("quality report covers every category and lists only suspicious near spellings for review", () => {
   const report = inspectCardQuality(CARD_CATEGORIES);
   assert.equal(report.total, TABU_CARDS.length);
+  assert.equal(Object.values(report.categoryCounts).reduce((sum, count) => sum + count, 0), TABU_CARDS.length);
+  assert.equal(report.singleWordMainWordCount + report.multiWordMainWordCount, TABU_CARDS.length);
   assert.deepEqual(report.duplicateIds, []);
   assert.deepEqual(report.duplicateWords, []);
   assert.deepEqual(report.invalidForbiddenWords, []);
   assert.ok(report.categoryCounts.food > 0);
+  assert.equal(
+    report.singleWordMainWordCount + report.twoWordMainWordCount + report.longerMainWordCount,
+    TABU_CARDS.length
+  );
+  assert.equal(
+    report.difficultyCounts.easy + report.difficultyCounts.medium + report.difficultyCounts.difficult,
+    TABU_CARDS.length
+  );
+  assert.ok(report.difficultyCounts.easy / report.total >= 0.65);
+  assert.ok(report.difficultyCounts.easy / report.total <= 0.75);
+  assert.ok(report.difficultyCounts.difficult / report.total <= 0.10);
+  assert.ok(report.potentiallyTooObscure.every((card) => card.reason.length > 0));
   const nearCards = [
     { id: "one", word: "Televizyon", forbiddenWords: ["a", "b", "c", "d", "e"] },
     { id: "two", word: "Televizyonu", forbiddenWords: ["f", "g", "h", "i", "j"] },

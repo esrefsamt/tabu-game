@@ -6,6 +6,9 @@ export type Team = "A" | "B";
 export type RoundDurationSeconds = 30 | 45 | 60 | 90 | 120;
 export type PassLimit = 0 | 1 | 2 | 3 | 4 | 5 | 10;
 export type TargetScore = 10 | 15 | 20 | 25 | 30 | 40 | 50;
+export const PLAYER_CATEGORY_IDS = ["DAILY", "FOOD", "SPORTS", "TECH", "WORK_EDUCATION", "SCIENCE_HEALTH", "NATURE", "TRAVEL", "HOME_OBJECTS", "CULTURE_ART"] as const;
+export type PlayerCategoryId = typeof PLAYER_CATEGORY_IDS[number];
+export type CardSelection = { mode: "GENERAL" } | { mode: "CUSTOM"; categories: PlayerCategoryId[] };
 
 export interface TabuCard {
   readonly id: string;
@@ -17,6 +20,7 @@ export interface RoomSettings {
   roundDurationSeconds: RoundDurationSeconds;
   passLimit: PassLimit;
   targetScore: TargetScore;
+  cardSelection: CardSelection;
 }
 
 export type GamePhase = "lobby" | "turn-preparation" | "round-active" | "unable-to-continue" | "game-over";
@@ -89,7 +93,8 @@ export interface SetCaptainPayload {
 export type UpdateRoomSettingsPayload =
   | { setting: "roundDurationSeconds"; value: RoundDurationSeconds }
   | { setting: "passLimit"; value: PassLimit }
-  | { setting: "targetScore"; value: TargetScore };
+  | { setting: "targetScore"; value: TargetScore }
+  | { setting: "cardSelection"; value: CardSelection };
 
 export type RoomErrorCode =
   | "invalid-name"

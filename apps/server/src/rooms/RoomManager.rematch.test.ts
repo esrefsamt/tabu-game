@@ -103,7 +103,7 @@ test("return keeps room members and settings, resets rotation, and rejects old c
   ]);
   assert.equal(reset.room.captainAId, "a2");
   assert.equal(reset.room.captainBId, "b1");
-  assert.deepEqual(reset.room.settings, { roundDurationSeconds: 30, passLimit: 3, targetScore: 10 });
+  assert.deepEqual(reset.room.settings, { roundDurationSeconds: 30, passLimit: 3, targetScore: 10, cardSelection: { mode: "GENERAL" } });
   assert.deepEqual(reset.room.game.scores, { A: 0, B: 0 });
   assert.equal(reset.room.game.winnerTeam, null);
   assert.equal(reset.room.game.phase, "lobby");

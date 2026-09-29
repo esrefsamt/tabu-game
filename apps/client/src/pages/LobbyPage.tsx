@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import type {
   CardAction,
@@ -24,6 +24,8 @@ import {
 } from "../lib/socket";
 import CensoredCard from "../components/CensoredCard";
 import LobbyTeamBoard from "../components/LobbyTeamBoard";
+import CategorySelector from "../components/CategorySelector";
+import { playSound } from "../lib/sound";
 
 const ROUND_DURATIONS: RoundDurationSeconds[] = [30, 45, 60, 90, 120];
 const PASS_LIMITS: PassLimit[] = [0, 1, 2, 3, 4, 5, 10];
@@ -368,7 +370,7 @@ function RoundScreen({ room }: { room: RoomState }) {
         {isActiveTeammate ? (
           <CensoredCard />
         ) : visibleCard ? (
-          <article className="tabu-card" aria-label="Tabu kartı">
+          <article className="tabu-card" key={visibleCard.id} aria-label="Tabu kartı">
             <div className="tabu-card-top"><p>ANLATILACAK KELİME</p><h2>{visibleCard.word}</h2></div>
             <div className="tabu-card-words"><p>SÖYLEME!</p><ul>{visibleCard.forbiddenWords.map((word) => <li key={word}>{word}</li>)}</ul></div>
           </article>
@@ -409,6 +411,16 @@ function LobbyPage() {
   const [settingsPending, setSettingsPending] = useState(false);
   const [gameStartError, setGameStartError] = useState("");
   const [gameStartPending, setGameStartPending] = useState(false);
+  const previousGame = useRef<{ phase: RoomState["game"]["phase"]; roundId: number | null } | null>(null);
+
+  useEffect(() => {
+    const game = room?.game;
+    if (!game) { previousGame.current = null; return; }
+    const previous = previousGame.current;
+    if (previous && game.phase === "round-active" && (previous.phase !== "round-active" || previous.roundId !== game.roundId)) playSound("round");
+    if (previous && game.phase === "game-over" && previous.phase !== "game-over") playSound("win");
+    previousGame.current = { phase: game.phase, roundId: game.roundId };
+  }, [room?.game.phase, room?.game.roundId]);
 
   useEffect(() => {
     if (!copyMessage) {
@@ -645,6 +657,7 @@ function LobbyPage() {
           {settingsError && <p className="validation-message" role="alert">{settingsError}</p>}
         </section>
         </div>
+        <CategorySelector selection={room.settings.cardSelection} isHost={isHost} pending={settingsPending} onChange={(selection) => void changeSetting({ setting: "cardSelection", value: selection })} />
 
         <section className="lobby-start-panel">
           <div>
