@@ -1,57 +1,7 @@
 import type { TabuCard } from "@tabu/shared";
+import { CARD_CATEGORIES } from "./data/index.js";
 import { validateCards } from "./validateCards.js";
 
-export const TABU_CARDS = [
-  { id: "tr-001", word: "Futbol", forbiddenWords: ["Top", "Gol", "Maç", "Takım", "Oyuncu"] },
-  { id: "tr-002", word: "Kahve", forbiddenWords: ["Fincan", "Kafe", "Kafein", "Türk", "Sabah"] },
-  { id: "tr-003", word: "Diş Fırçası", forbiddenWords: ["Macun", "Diş", "Banyo", "Temizlik", "Kıl"] },
-  { id: "tr-004", word: "Şemsiye", forbiddenWords: ["Yağmur", "Islanmak", "Açmak", "Sap", "Hava"] },
-  { id: "tr-005", word: "Pizza", forbiddenWords: ["İtalya", "Peynir", "Dilim", "Fırın", "Hamur"] },
-  { id: "tr-006", word: "Doktor", forbiddenWords: ["Hastane", "Hasta", "İlaç", "Muayene", "Sağlık"] },
-  { id: "tr-007", word: "Telefon", forbiddenWords: ["Aramak", "Mesaj", "Cep", "Ekran", "Numara"] },
-  { id: "tr-008", word: "Kütüphane", forbiddenWords: ["Kitap", "Sessiz", "Okumak", "Raf", "Ödünç"] },
-  { id: "tr-009", word: "Kedi", forbiddenWords: ["Miyav", "Kuyruk", "Pati", "Süt", "Fare"] },
-  { id: "tr-010", word: "Uçak", forbiddenWords: ["Pilot", "Havaalanı", "Uçmak", "Kanat", "Bilet"] },
-  { id: "tr-011", word: "Bisiklet", forbiddenWords: ["Pedal", "Tekerlek", "Zil", "Kask", "Sürmek"] },
-  { id: "tr-012", word: "Dondurma", forbiddenWords: ["Soğuk", "Külah", "Yaz", "Çikolata", "Erimek"] },
-  { id: "tr-013", word: "Öğretmen", forbiddenWords: ["Okul", "Ders", "Öğrenci", "Tahta", "Sınav"] },
-  { id: "tr-014", word: "Saat", forbiddenWords: ["Zaman", "Kol", "Akrep", "Yelkovan", "Dakika"] },
-  { id: "tr-015", word: "Deniz", forbiddenWords: ["Su", "Dalga", "Sahil", "Yüzmek", "Mavi"] },
-  { id: "tr-016", word: "Ekmek", forbiddenWords: ["Fırın", "Un", "Mayalı", "Kahvaltı", "Somun"] },
-  { id: "tr-017", word: "Fotoğraf Makinesi", forbiddenWords: ["Resim", "Lens", "Çekmek", "Flaş", "Poz"] },
-  { id: "tr-018", word: "Arı", forbiddenWords: ["Bal", "Vızıldamak", "Çiçek", "Kovan", "Sokmak"] },
-  { id: "tr-019", word: "Taksi", forbiddenWords: ["Şoför", "Sarı", "Ücret", "Durak", "Yolcu"] },
-  { id: "tr-020", word: "Gitar", forbiddenWords: ["Müzik", "Tel", "Nota", "Çalmak", "Sahne"] },
-  { id: "tr-021", word: "Asansör", forbiddenWords: ["Kat", "Düğme", "Bina", "Yukarı", "Aşağı"] },
-  { id: "tr-022", word: "Çorba", forbiddenWords: ["Kaşık", "Kase", "Sıcak", "Mercimek", "İçmek"] },
-  { id: "tr-023", word: "Futbolcu", forbiddenWords: ["Forma", "Stadyum", "Antrenman", "Kaleci", "Hakem"] },
-  { id: "tr-024", word: "Marangoz", forbiddenWords: ["Ahşap", "Çekiç", "Mobilya", "Atölye", "Testere"] },
-  { id: "tr-025", word: "Gökkuşağı", forbiddenWords: ["Renk", "Yağmur", "Gökyüzü", "Yedi", "Güneş"] },
-  { id: "tr-026", word: "Bilgisayar", forbiddenWords: ["Klavye", "Fare", "Ekran", "İnternet", "Dosya"] },
-  { id: "tr-027", word: "Tren", forbiddenWords: ["Ray", "İstasyon", "Vagon", "Lokomotif", "Bilet"] },
-  { id: "tr-028", word: "Köpek", forbiddenWords: ["Havlamak", "Tasması", "Kemik", "Kulübe", "Sadık"] },
-  { id: "tr-029", word: "Diş Hekimi", forbiddenWords: ["Ağız", "Klinik", "Dolgu", "Çürük", "Koltuk"] },
-  { id: "tr-030", word: "Makarna", forbiddenWords: ["İtalyan", "Sos", "Spagetti", "Haşlamak", "Tabak"] },
-  { id: "tr-031", word: "Pasaport", forbiddenWords: ["Seyahat", "Kimlik", "Vize", "Yurt dışı", "Havalimanı"] },
-  { id: "tr-032", word: "Çamaşır Makinesi", forbiddenWords: ["Deterjan", "Kıyafet", "Yıkamak", "Program", "Sıkmak"] },
-  { id: "tr-033", word: "Basketbol", forbiddenWords: ["Pota", "Sayı", "Turuncu", "Saha", "Zıplamak"] },
-  { id: "tr-034", word: "Astronot", forbiddenWords: ["Uzay", "Roket", "Ay", "Kask", "Gezegen"] },
-  { id: "tr-035", word: "Aslan", forbiddenWords: ["Orman", "Yele", "Kükremek", "Kral", "Yırtıcı"] },
-  { id: "tr-036", word: "Tiyatro", forbiddenWords: ["Sahne", "Perde", "Oyuncu", "Oyun", "Alkış"] },
-  { id: "tr-037", word: "Buzdolabı", forbiddenWords: ["Mutfak", "Soğutmak", "Raf", "Yiyecek", "Kapak"] },
-  { id: "tr-038", word: "Balık", forbiddenWords: ["Deniz", "Yüzgeç", "Olta", "Akvaryum", "Solungaç"] },
-  { id: "tr-039", word: "Harita", forbiddenWords: ["Yol", "Şehir", "Yön", "Ülke", "Pusula"] },
-  { id: "tr-040", word: "Pasta", forbiddenWords: ["Doğum günü", "Mum", "Krema", "Dilim", "Tatlı"] },
-  { id: "tr-041", word: "Polis", forbiddenWords: ["Suç", "Karakol", "Üniforma", "Devriye", "Yakalamak"] },
-  { id: "tr-042", word: "Şarj Aleti", forbiddenWords: ["Pil", "Priz", "Kablo", "Telefon", "Elektrik"] },
-  { id: "tr-043", word: "Kaplumbağa", forbiddenWords: ["Kabuk", "Yavaş", "Sürüngen", "Tosbağa", "Yumurta"] },
-  { id: "tr-044", word: "Piknik", forbiddenWords: ["Mangal", "Sepet", "Açık hava", "Örtü", "Doğa"] },
-  { id: "tr-045", word: "Eczacı", forbiddenWords: ["Eczane", "Reçete", "İlaç", "Kutu", "Hap"] },
-  { id: "tr-046", word: "Çorap", forbiddenWords: ["Ayak", "Ayakkabı", "Çift", "Örme", "Delik"] },
-  { id: "tr-047", word: "Penguen", forbiddenWords: ["Kutup", "Buz", "Siyah", "Beyaz", "Uçamamak"] },
-  { id: "tr-048", word: "Traktör", forbiddenWords: ["Tarla", "Çiftçi", "Tekerlek", "Römork", "Hasat"] },
-  { id: "tr-049", word: "Güneş Gözlüğü", forbiddenWords: ["Göz", "Cam", "Yaz", "Işık", "Aksesuar"] },
-  { id: "tr-050", word: "Köprü", forbiddenWords: ["Nehir", "Geçmek", "Yol", "İstanbul", "Ayak"] }
-] as const satisfies readonly TabuCard[];
-
+export { CARD_CATEGORIES } from "./data/index.js";
+export const TABU_CARDS: readonly TabuCard[] = Object.values(CARD_CATEGORIES).flat();
 validateCards(TABU_CARDS);

@@ -4,7 +4,9 @@ import type { TabuCard } from "@tabu/shared";
 import { TABU_CARDS } from "./cards.js";
 import { Deck } from "./Deck.js";
 import { RoomDeckStore } from "./RoomDeckStore.js";
-import { validateCards } from "./validateCards.js";
+import { normalizeCardText, validateCards } from "./validateCards.js";
+import { CARD_CATEGORIES } from "./data/index.js";
+import { inspectCardQuality } from "./cardQuality.js";
 
 const sampleCards = [
   { id: "a", word: "Elma", forbiddenWords: ["Meyve", "Kırmızı", "Ağaç", "Yemek", "Çekirdek"] },
@@ -14,7 +16,7 @@ const sampleCards = [
 
 test("built-in card data has unique IDs and valid words", () => {
   validateCards(TABU_CARDS);
-  assert.equal(TABU_CARDS.length, 50);
+  assert.ok(TABU_CARDS.length >= 2800 && TABU_CARDS.length <= 3200);
   assert.equal(new Set(TABU_CARDS.map((card) => card.id)).size, TABU_CARDS.length);
   assert.ok(TABU_CARDS.every((card) => card.word.trim().length > 0));
   assert.ok(TABU_CARDS.every((card) => card.forbiddenWords.length === 5));
@@ -41,6 +43,39 @@ test("card validation rejects malformed words, forbidden lists, and duplicate va
   assert.throws(() => validateCards([
     { id: " ", word: "Kelime", forbiddenWords: ["a", "b", "c", "d", "e"] }
   ]), /non-empty ID/);
+  assert.throws(() => validateCards([
+    { id: "first", word: "Işık", forbiddenWords: ["a", "b", "c", "d", "e"] },
+    { id: "second", word: "  IŞIK! ", forbiddenWords: ["f", "g", "h", "i", "j"] }
+  ]), /Duplicate Tabu main word/);
+  assert.throws(() => validateCards([
+    { id: " first ", word: "Bir", forbiddenWords: ["a", "b", "c", "d", "e"] },
+    { id: "FIRST", word: "İki", forbiddenWords: ["f", "g", "h", "i", "j"] }
+  ]), /Duplicate Tabu card ID/);
+  assert.throws(() => validateCards([
+    { id: "word", word: "Kredi Kartı", forbiddenWords: ["a", "b", "c", "d", "KREDİ-KARTI"] }
+  ]), /repeats its main word/);
+  assert.throws(() => validateCards([
+    { id: "word", word: "Kelime", forbiddenWords: ["a", "b", "c", "d", "A!"] }
+  ]), /duplicate forbidden word/);
+  assert.equal(normalizeCardText("  Kredi—Kartı!  "), "kredi kartı");
+});
+
+test("quality report covers every category and lists only suspicious near spellings for review", () => {
+  const report = inspectCardQuality(CARD_CATEGORIES);
+  assert.equal(report.total, TABU_CARDS.length);
+  assert.deepEqual(report.duplicateIds, []);
+  assert.deepEqual(report.duplicateWords, []);
+  assert.deepEqual(report.invalidForbiddenWords, []);
+  assert.ok(report.categoryCounts.food > 0);
+  const nearCards = [
+    { id: "one", word: "Televizyon", forbiddenWords: ["a", "b", "c", "d", "e"] },
+    { id: "two", word: "Televizyonu", forbiddenWords: ["f", "g", "h", "i", "j"] },
+    { id: "three", word: "Araba", forbiddenWords: ["k", "l", "m", "n", "o"] },
+    { id: "four", word: "Otomobil", forbiddenWords: ["p", "q", "r", "s", "t"] }
+  ] as const satisfies readonly TabuCard[];
+  const near = inspectCardQuality({ sample: nearCards });
+  assert.ok(near.suspiciousNearDuplicates.includes("Televizyon / Televizyonu"));
+  assert.equal(near.duplicateWords.length, 0);
 });
 
 test("a deck draws every card once before starting another cycle", () => {
@@ -51,6 +86,16 @@ test("a deck draws every card once before starting another cycle", () => {
 
   const nextCard = deck.draw();
   assert.ok(sampleCards.some((card) => card.id === nextCard.id));
+  assert.equal(deck.usedCount, 1);
+});
+
+test("the full library cycles without repeats and avoids an immediate cycle-boundary repeat", () => {
+  const deck = new Deck(TABU_CARDS, (maxExclusive) => maxExclusive - 1);
+  const firstCycle = Array.from({ length: TABU_CARDS.length }, () => deck.draw());
+  assert.equal(new Set(firstCycle.map((card) => card.id)).size, TABU_CARDS.length);
+  assert.equal(deck.usedCount, TABU_CARDS.length);
+  const nextCard = deck.draw();
+  assert.notEqual(nextCard.id, firstCycle.at(-1)?.id);
   assert.equal(deck.usedCount, 1);
 });
 

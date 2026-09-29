@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "tsx --test src/cards/cards.test.ts src/game/RoundEngine.test.ts src/game/TurnEngine.test.ts src/rooms/RoomManager.test.ts src/rooms/RoomManager.move.test.ts src/rooms/RoomManager.round.test.ts src/rooms/RoomManager.match.test.ts src/rooms/RoomManager.rematch.test.ts src/socket/roomHandlers.test.ts",
+    "cards:quality": "tsx src/cards/cardQualityReport.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

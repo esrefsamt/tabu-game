@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RoomState } from "@tabu/shared";
-import { TABU_CARDS } from "../cards/cards.js";
 import { FakeRoundClock } from "../game/FakeRoundClock.test-helper.js";
 import { RoomManager } from "./RoomManager.js";
 
@@ -198,7 +197,7 @@ test("a disconnected captain is cleared before the new host prepares a rematch",
   assert.equal(rooms.startGame(code, "a2").ok, true);
 });
 
-test("a room deck remains unique across five matches and reshuffles only after all cards were drawn", () => {
+test("a room deck preserves card progress across consecutive rematches", () => {
   const { rooms, code } = fixture();
   const seen = new Set<string>();
   let previousFinalId = "";
@@ -218,11 +217,11 @@ test("a room deck remains unique across five matches and reshuffles only after a
     const reset = rooms.returnToLobby(code, "a1");
     assert.equal(reset.ok, true);
   }
-  assert.equal(seen.size, TABU_CARDS.length);
+  assert.equal(seen.size, 50);
   assert.equal(rooms.startGame(code, "a1").ok, true);
   assert.equal(rooms.startRound(code, "a1").ok, true);
   const newCycleCard = rooms.getPersonalGameView(code, "a1")?.currentCard;
   assert.ok(newCycleCard);
-  assert.equal(seen.has(newCycleCard.id), true);
+  assert.equal(seen.has(newCycleCard.id), false);
   assert.notEqual(newCycleCard.id, previousFinalId);
 });
