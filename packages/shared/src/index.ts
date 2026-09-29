@@ -156,6 +156,15 @@ export type GameStartError =
 
 export type GameStartResponse = { ok: true } | { ok: false; error: GameStartError };
 
+export type ReturnToLobbyError =
+  | "not-in-room"
+  | "not-host"
+  | "game-not-over"
+  | "server-unavailable"
+  | "request-timeout";
+
+export type ReturnToLobbyResponse = { ok: true } | { ok: false; error: ReturnToLobbyError };
+
 export type RoundStartError =
   | "not-in-room"
   | "round-not-ready"
@@ -205,6 +214,7 @@ export interface ClientToServerEvents {
     acknowledge: (response: SettingsActionResponse) => void
   ) => void;
   "game:start": (acknowledge: (response: GameStartResponse) => void) => void;
+  "game:return-to-lobby": (acknowledge: (response: ReturnToLobbyResponse) => void) => void;
   "game:start-round": (acknowledge: (response: RoundStartResponse) => void) => void;
   "game:card-action": (
     payload: CardActionPayload,

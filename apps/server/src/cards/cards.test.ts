@@ -89,4 +89,6 @@ test("room decks keep independent progress and are removed with their room", () 
   rooms.remove("ROOM_A");
   assert.throws(() => rooms.draw("ROOM_A"), /No deck exists/);
   assert.notEqual(rooms.draw("ROOM_B").id, roomAFirstCard.id);
+  rooms.create("ROOM_A");
+  assert.equal(rooms.draw("ROOM_A").id, roomAFirstCard.id);
 });

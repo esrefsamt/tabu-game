@@ -9,6 +9,7 @@ import type {
   RoomActionResponse,
   RoomErrorCode,
   RoomState,
+  ReturnToLobbyResponse,
   RoundStartResponse,
   ServerToClientEvents,
   SettingsActionResponse,
@@ -187,6 +188,23 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager): void {
 
       broadcastRoomState(io, rooms, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies GameStartResponse);
+    });
+
+    socket.on("game:return-to-lobby", (acknowledge) => {
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies ReturnToLobbyResponse);
+        return;
+      }
+
+      const result = rooms.returnToLobby(roomCode, socket.id);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+
+      broadcastRoomState(io, rooms, roomCode, result.room);
+      respond(acknowledge, { ok: true } satisfies ReturnToLobbyResponse);
     });
 
     socket.on("game:start-round", (acknowledge) => {

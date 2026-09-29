@@ -142,3 +142,18 @@ test("a winning Correct clears the card and timer without drawing a replacement"
   assert.equal(expiredCount(), 0);
   round.dispose();
 });
+
+test("a new round engine can continue card versions without accepting a previous match's version", () => {
+  const clock = new FakeRoundClock();
+  const oldRound = new RoundEngine(() => cards[0]!, () => {}, clock);
+  oldRound.start(30);
+  const oldVersion = oldRound.cardVersion!;
+  oldRound.dispose();
+  const newRound = new RoundEngine(() => cards[1]!, () => {}, clock, oldRound.lastCardVersion);
+  newRound.start(30);
+  assert.ok(newRound.cardVersion! > oldVersion);
+  assert.deepEqual(newRound.applyAction("correct", oldVersion, "A", 3, 10), {
+    ok: false, error: "stale-card"
+  });
+  newRound.dispose();
+});

@@ -10,6 +10,7 @@ import type {
   PassLimit,
   Player,
   RoomState,
+  ReturnToLobbyError,
   RoundStartError,
   RoundDurationSeconds,
   SettingsActionError,
@@ -18,7 +19,7 @@ import type {
   UpdateRoomSettingsPayload
 } from "@tabu/shared";
 import {
-  movePlayer, sendCardAction, setCaptain, socket, startGame, startRound,
+  movePlayer, returnToLobby, sendCardAction, setCaptain, socket, startGame, startRound,
   updateRoomSettings, usePersonalGameView, useRoomState
 } from "../lib/socket";
 import CensoredCard from "../components/CensoredCard";
@@ -106,6 +107,16 @@ function gameStartErrorMessage(error: GameStartError): string {
   }
 }
 
+function returnToLobbyErrorMessage(error: ReturnToLobbyError): string {
+  switch (error) {
+    case "not-in-room": return "Oda bağlantısı bulunamadı.";
+    case "not-host": return "Yeni maçı yalnızca oda sahibi hazırlayabilir.";
+    case "game-not-over": return "Maç henüz sona ermedi.";
+    case "server-unavailable": return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
+    case "request-timeout": return "Sunucudan yanıt alınamadı. Lütfen tekrar dene.";
+  }
+}
+
 function roundStartErrorMessage(error: RoundStartError): string {
   switch (error) {
     case "not-in-room": return "Oda bağlantısı bulunamadı.";
@@ -152,7 +163,19 @@ function ScoreBoard({ scores, activeTeam, targetScore }: {
 
 function WinnerScreen({ room }: { room: RoomState }) {
   const winner = room.game.winnerTeam;
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const isHost = room.players.some((player) => player.id === socket.id && player.isHost);
   if (winner === null) return null;
+
+  async function handleReturnToLobby() {
+    setError("");
+    setPending(true);
+    const response = await returnToLobby();
+    if (!response.ok) setError(returnToLobbyErrorMessage(response.error));
+    setPending(false);
+  }
+
   return (
     <main className="page-shell lobby-shell">
       <section className={`game-card winner-screen winner-team-${winner}`} aria-labelledby="winner-title">
@@ -169,6 +192,18 @@ function WinnerScreen({ room }: { room: RoomState }) {
         <ScoreBoard scores={room.game.scores} activeTeam={winner} targetScore={room.settings.targetScore} />
         <p className="winner-final-label">FİNAL SKORU</p>
         <p className="winner-final-score">{room.game.scores.A} <span>–</span> {room.game.scores.B}</p>
+        <div className="rematch-action">
+          {isHost ? (
+            <>
+              <button className="button button-primary" disabled={pending} onClick={() => void handleReturnToLobby()} type="button">
+                {pending ? "Lobiye dönülüyor…" : "Tekrar Oyna"}
+              </button>
+              {error && <p className="validation-message" role="alert">{error}</p>}
+            </>
+          ) : (
+            <p>Oda sahibinin yeni maçı hazırlaması bekleniyor.</p>
+          )}
+        </div>
       </section>
     </main>
   );

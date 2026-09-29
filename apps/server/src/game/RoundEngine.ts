@@ -21,7 +21,7 @@ export type RoundActionResult =
 export class RoundEngine {
   private readonly scores: TeamScores = { A: 0, B: 0 };
   private currentCardValue: TabuCard | null = null;
-  private cardVersionValue = 0;
+  private cardVersionValue: number;
   private roundSequence = 0;
   private roundIdValue: number | null = null;
   private roundStartedAtValue: number | null = null;
@@ -32,8 +32,11 @@ export class RoundEngine {
   constructor(
     private readonly drawNextCard: () => TabuCard,
     private readonly onExpired: () => void,
-    private readonly clock: RoundClock = systemRoundClock
-  ) {}
+    private readonly clock: RoundClock = systemRoundClock,
+    initialCardVersion = 0
+  ) {
+    this.cardVersionValue = initialCardVersion;
+  }
 
   get isActive(): boolean {
     return this.roundIdValue !== null;
@@ -45,6 +48,10 @@ export class RoundEngine {
 
   get cardVersion(): number | null {
     return this.isActive ? this.cardVersionValue : null;
+  }
+
+  get lastCardVersion(): number {
+    return this.cardVersionValue;
   }
 
   get publicState(): {

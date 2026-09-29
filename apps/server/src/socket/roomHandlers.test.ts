@@ -167,4 +167,16 @@ test("card results reach every room member only after valid actions and reveal o
   clock.advance(30_000);
   assert.deepEqual(results.map((items) => items.length), [13, 13, 13, 13]);
   assert.ok(states.every((state) => state?.game.phase === "game-over"));
+
+  assert.deepEqual(await b1.emitWithAck("game:return-to-lobby"), { ok: false, error: "not-host" });
+  assert.deepEqual(await a1.emitWithAck("game:return-to-lobby"), { ok: true });
+  await waitFor(() => states.every((state) => state?.game.phase === "lobby") &&
+    views.every((view) => view?.roundId === null && view.currentCard === null));
+  assert.ok(states.every((state) => state?.game.winnerTeam === null && state.game.scores.A === 0));
+  assert.ok(states.every((state) => state?.settings.targetScore === 10));
+  assert.deepEqual(results.map((items) => items.length), [13, 13, 13, 13]);
+  assert.deepEqual(await a1.emitWithAck("game:return-to-lobby"), { ok: false, error: "game-not-over" });
+  assert.deepEqual(await a1.emitWithAck("game:start"), { ok: true });
+  await waitFor(() => states.every((state) => state?.game.phase === "turn-preparation"));
+  assert.ok(states.every((state) => state?.game.activeTeam === "A" && state.game.scores.A === 0));
 });

@@ -8,6 +8,7 @@ import type {
   PersonalGameView,
   Player,
   PublicGameState,
+  ReturnToLobbyError,
   RoomSettings,
   RoomState,
   RoundStartError,
@@ -51,6 +52,7 @@ interface Room {
   captainBId: string | null;
   settings: RoomSettings;
   winnerTeam: Team | null;
+  lastCardVersion: number;
 }
 
 export type JoinRoomResult =
@@ -72,6 +74,10 @@ export type SettingsChangeResult =
 export type GameStartResult =
   | { ok: true; room: RoomState }
   | { ok: false; error: GameStartError };
+
+export type ReturnToLobbyResult =
+  | { ok: true; room: RoomState }
+  | { ok: false; error: ReturnToLobbyError };
 
 export type RoundStartResult =
   | { ok: true; room: RoomState }
@@ -103,7 +109,8 @@ export class RoomManager {
       captainAId: null,
       captainBId: null,
       settings: { ...DEFAULT_ROOM_SETTINGS },
-      winnerTeam: null
+      winnerTeam: null,
+      lastCardVersion: 0
     };
 
     this.rooms.set(code, room);
@@ -283,8 +290,38 @@ export class RoomManager {
           this.statePublisher?.(roomCode, this.toRoomState(currentRoom));
         }
       },
-      this.roundClock
+      this.roundClock,
+      room.lastCardVersion
     ));
+    return { ok: true, room: this.toRoomState(room) };
+  }
+
+  returnToLobby(roomCode: string, requesterId: string): ReturnToLobbyResult {
+    const room = this.rooms.get(roomCode);
+    if (!room?.players.has(requesterId)) {
+      return { ok: false, error: "not-in-room" };
+    }
+    if (room.hostId !== requesterId) {
+      return { ok: false, error: "not-host" };
+    }
+    if (room.winnerTeam === null) {
+      return { ok: false, error: "game-not-over" };
+    }
+
+    const round = this.roundEngines.get(roomCode);
+    if (round) {
+      room.lastCardVersion = round.lastCardVersion;
+      round.dispose();
+      this.roundEngines.delete(roomCode);
+    }
+    this.turnEngines.delete(roomCode);
+    room.winnerTeam = null;
+    if (room.captainAId && room.players.get(room.captainAId)?.team !== "A") {
+      room.captainAId = null;
+    }
+    if (room.captainBId && room.players.get(room.captainBId)?.team !== "B") {
+      room.captainBId = null;
+    }
     return { ok: true, room: this.toRoomState(room) };
   }
 

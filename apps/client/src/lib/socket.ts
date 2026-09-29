@@ -11,6 +11,7 @@ import type {
   PersonalGameView,
   RoomActionResponse,
   RoomState,
+  ReturnToLobbyResponse,
   RoundStartResponse,
   SettingsActionResponse,
   SetCaptainPayload,
@@ -150,6 +151,14 @@ export function updateRoomSettings(payload: UpdateRoomSettingsPayload): Promise<
 export function startGame(): Promise<GameStartResponse> {
   return requestLobbyAction<GameStartResponse>(
     (acknowledge) => socket.emit("game:start", acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+export function returnToLobby(): Promise<ReturnToLobbyResponse> {
+  return requestLobbyAction<ReturnToLobbyResponse>(
+    (acknowledge) => socket.emit("game:return-to-lobby", acknowledge),
     { ok: false, error: "server-unavailable" },
     { ok: false, error: "request-timeout" }
   );
