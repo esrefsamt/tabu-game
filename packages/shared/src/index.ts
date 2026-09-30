@@ -46,6 +46,7 @@ export interface PublicGameState {
   scores: TeamScores;
   roundId: number | null;
   roundEndsAt: number | null;
+  roundPausedRemainingMs: number | null;
   passesUsed: number;
 }
 
@@ -59,6 +60,7 @@ export interface Player {
   id: string;
   name: string;
   isHost: boolean;
+  isConnected: boolean;
   team: Team | null;
 }
 
@@ -73,11 +75,17 @@ export interface RoomState {
 
 export interface CreateRoomPayload {
   name: string;
+  historyProfileId: string;
 }
 
 export interface JoinRoomPayload {
   name: string;
   roomCode: string;
+}
+
+export interface ResumeRoomPayload {
+  roomCode: string;
+  sessionToken: string;
 }
 
 export interface MovePlayerPayload {
@@ -98,6 +106,7 @@ export type UpdateRoomSettingsPayload =
 
 export type RoomErrorCode =
   | "invalid-name"
+  | "invalid-history-profile"
   | "invalid-room-code"
   | "room-not-found"
   | "room-full"
@@ -107,8 +116,12 @@ export type RoomErrorCode =
   | "request-timeout";
 
 export type RoomActionResponse =
-  | { ok: true; room: RoomState }
+  | { ok: true; room: RoomState; playerId: string; sessionToken: string }
   | { ok: false; error: RoomErrorCode };
+
+export type ResumeRoomResponse =
+  | { ok: true; room: RoomState; playerId: string }
+  | { ok: false; error: "invalid-session" | "room-not-found" | "already-in-room" };
 
 export type MovePlayerError =
   | "invalid-team"
@@ -206,6 +219,11 @@ export interface ClientToServerEvents {
     payload: JoinRoomPayload,
     acknowledge: (response: RoomActionResponse) => void
   ) => void;
+  "room:resume": (
+    payload: ResumeRoomPayload,
+    acknowledge: (response: ResumeRoomResponse) => void
+  ) => void;
+  "room:leave": (acknowledge: (response: { ok: true } | { ok: false; error: "not-in-room" }) => void) => void;
   "room:move-player": (
     payload: MovePlayerPayload,
     acknowledge: (response: MovePlayerResponse) => void
@@ -229,6 +247,7 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   "room:state": (room: RoomState) => void;
+  "room:session-moved": () => void;
   "game:view": (view: PersonalGameView) => void;
   "game:card-result": (result: CardResult) => void;
 }
@@ -237,4 +256,5 @@ export interface InterServerEvents {}
 
 export interface SocketData {
   roomCode?: string;
+  playerId?: string;
 }

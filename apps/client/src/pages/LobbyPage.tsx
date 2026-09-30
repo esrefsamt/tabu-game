@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
   CardAction,
   CardActionError,
@@ -19,7 +19,8 @@ import type {
   UpdateRoomSettingsPayload
 } from "@tabu/shared";
 import {
-  movePlayer, returnToLobby, sendCardAction, setCaptain, socket, startGame, startRound,
+  getCurrentPlayerId, hasRoomSession, leaveRoom, movePlayer, resumeRoom, returnToLobby,
+  sendCardAction, setCaptain, socket, startGame, startRound,
   updateRoomSettings, usePersonalGameView, useRoomState
 } from "../lib/socket";
 import CensoredCard from "../components/CensoredCard";
@@ -167,7 +168,7 @@ function WinnerScreen({ room }: { room: RoomState }) {
   const winner = room.game.winnerTeam;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const isHost = room.players.some((player) => player.id === socket.id && player.isHost);
+  const isHost = room.players.some((player) => player.id === getCurrentPlayerId() && player.isHost);
   if (winner === null) return null;
 
   async function handleReturnToLobby() {
@@ -248,7 +249,7 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
   const teamBPlayers = room.players.filter((player) => player.team === "B");
   const clueGiver = room.players.find((player) => player.id === room.game.clueGiverId);
   const activeTeamLabel = room.game.activeTeam === "A" ? "Takım A" : "Takım B";
-  const isClueGiver = room.game.clueGiverId === socket.id;
+  const isClueGiver = room.game.clueGiverId === getCurrentPlayerId();
 
   async function handleStartRound() {
     setRoundError("");
@@ -311,14 +312,15 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
 }
 
 function RoundScreen({ room }: { room: RoomState }) {
+  const navigate = useNavigate();
   const view = usePersonalGameView();
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
-  const currentPlayer = room.players.find((player) => player.id === socket.id);
+  const currentPlayer = room.players.find((player) => player.id === getCurrentPlayerId());
   const clueGiver = room.players.find((player) => player.id === room.game.clueGiverId);
   const activeTeam = room.game.activeTeam;
-  const isClueGiver = socket.id === room.game.clueGiverId;
+  const isClueGiver = getCurrentPlayerId() === room.game.clueGiverId;
   const opposingCaptainId = activeTeam === "A" ? room.captainBId : room.captainAId;
   const isOpposingCaptain = currentPlayer?.id === opposingCaptainId && currentPlayer?.team !== activeTeam;
   const isActiveTeammate = currentPlayer?.team === activeTeam && !isClueGiver;
@@ -327,20 +329,25 @@ function RoundScreen({ room }: { room: RoomState }) {
   const visibleCard = canSeeCard && view.roundId === room.game.roundId ? view.currentCard : null;
   const cardVersion = visibleCard ? view.cardVersion : null;
   const passesRemaining = Math.max(0, room.settings.passLimit - room.game.passesUsed);
+  const isPaused = room.game.roundPausedRemainingMs !== null;
 
   useEffect(() => {
+    if (room.game.roundPausedRemainingMs !== null) {
+      setRemainingSeconds(Math.ceil(room.game.roundPausedRemainingMs / 1000));
+      return undefined;
+    }
     const updateCountdown = () => {
       setRemainingSeconds(Math.max(0, Math.ceil(((room.game.roundEndsAt ?? Date.now()) - Date.now()) / 1000)));
     };
     updateCountdown();
     const interval = window.setInterval(updateCountdown, 250);
     return () => window.clearInterval(interval);
-  }, [room.game.roundEndsAt]);
+  }, [room.game.roundEndsAt, room.game.roundPausedRemainingMs]);
 
   useEffect(() => { setActionError(""); }, [view.cardVersion]);
 
   async function act(action: CardAction) {
-    if (cardVersion === null || actionPending) return;
+    if (cardVersion === null || actionPending || isPaused) return;
     setActionError("");
     setActionPending(true);
     const response = await sendCardAction({ action, cardVersion });
@@ -367,6 +374,8 @@ function RoundScreen({ room }: { room: RoomState }) {
           </div>
         </div>
 
+        {isPaused && <p className="round-reconnecting" role="status">Anlatıcı yeniden bağlanıyor…</p>}
+
         {isActiveTeammate ? (
           <CensoredCard />
         ) : visibleCard ? (
@@ -381,19 +390,20 @@ function RoundScreen({ room }: { room: RoomState }) {
         {isClueGiver && (
           <div className="round-controls">
             <div className="round-buttons">
-              <button className="button button-correct" disabled={actionPending || cardVersion === null} onClick={() => void act("correct")} type="button">✓ Doğru</button>
-              <button className="button button-pass" disabled={actionPending || cardVersion === null || passesRemaining === 0} onClick={() => void act("pass")} type="button">→ Pas</button>
-              <button className="button button-tabu" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
+              <button className="button button-correct" disabled={isPaused || actionPending || cardVersion === null} onClick={() => void act("correct")} type="button">✓ Doğru</button>
+              <button className="button button-pass" disabled={isPaused || actionPending || cardVersion === null || passesRemaining === 0} onClick={() => void act("pass")} type="button">→ Pas</button>
+              <button className="button button-tabu" disabled={isPaused || actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
             </div>
             <p className="passes-remaining">Kalan pas: {passesRemaining}</p>
           </div>
         )}
         {!isClueGiver && isOpposingCaptain && (
           <div className="round-controls">
-            <button className="button button-tabu" disabled={actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
+            <button className="button button-tabu" disabled={isPaused || actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
           </div>
         )}
         {actionError && <p className="validation-message round-error" role="alert">{actionError}</p>}
+        <button className="button button-secondary" type="button" onClick={() => void leaveRoom().then(() => navigate("/"))}>Odadan Ayrıl</button>
       </section>
     </main>
   );
@@ -401,7 +411,9 @@ function RoundScreen({ room }: { room: RoomState }) {
 
 function LobbyPage() {
   const { roomCode = "" } = useParams();
+  const navigate = useNavigate();
   const room = useRoomState();
+  const [recovery, setRecovery] = useState<"pending" | "missing" | "invalid" | "moved">("pending");
   const [copyMessage, setCopyMessage] = useState("");
   const [moveError, setMoveError] = useState("");
   const [movePending, setMovePending] = useState(false);
@@ -412,6 +424,34 @@ function LobbyPage() {
   const [gameStartError, setGameStartError] = useState("");
   const [gameStartPending, setGameStartPending] = useState(false);
   const previousGame = useRef<{ phase: RoomState["game"]["phase"]; roundId: number | null } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    let retryTimer: number | null = null;
+    const code = roomCode.toUpperCase();
+    const attempt = async () => {
+      if (recovery === "moved" || !mounted) return;
+      if (!hasRoomSession(code)) {
+        if (mounted && !room) setRecovery("missing");
+        return;
+      }
+      const result = await resumeRoom(code);
+      if (mounted && result === "invalid") setRecovery("invalid");
+      if (mounted && result === "unavailable" && socket.connected) {
+        retryTimer = window.setTimeout(() => void attempt(), 500);
+      }
+    };
+    const moved = () => { if (mounted) setRecovery("moved"); };
+    socket.on("connect", attempt);
+    socket.on("room:session-moved", moved);
+    void attempt();
+    return () => {
+      mounted = false;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      socket.off("connect", attempt);
+      socket.off("room:session-moved", moved);
+    };
+  }, [roomCode, recovery, room]);
 
   useEffect(() => {
     const game = room?.game;
@@ -435,7 +475,16 @@ function LobbyPage() {
   }, [room?.game.phase]);
 
   if (!room || room.code !== roomCode.toUpperCase()) {
-    return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}`} replace />;
+    if (recovery === "missing") {
+      return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}`} replace />;
+    }
+    if (recovery === "moved") {
+      return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}&sessionMoved=1`} replace />;
+    }
+    if (recovery === "invalid") {
+      return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}&sessionExpired=1`} replace />;
+    }
+    return <main className="page-shell lobby-shell"><section className="game-card" role="status">Bağlantı yeniden kuruluyor…</section></main>;
   }
 
   if (room.game.phase === "round-active") {
@@ -452,7 +501,7 @@ function LobbyPage() {
 
   const teamAPlayers = room.players.filter((player) => player.team === "A");
   const teamBPlayers = room.players.filter((player) => player.team === "B");
-  const currentPlayer = room.players.find((player) => player.id === socket.id);
+  const currentPlayer = room.players.find((player) => player.id === getCurrentPlayerId());
   const isHost = currentPlayer?.isHost ?? false;
   const captainA = room.players.find((player) => player.id === room.captainAId);
   const captainB = room.players.find((player) => player.id === room.captainBId);
@@ -551,6 +600,8 @@ function LobbyPage() {
           </div>
         </header>
         <p className="copy-message" aria-live="polite">{copyMessage}</p>
+        <button className="button button-secondary" type="button" onClick={() => void leaveRoom().then(() => navigate("/"))}>Odadan Ayrıl</button>
+        {isHost && <p className="history-note">Kart geçmişi bu cihazda hatırlanıyor.</p>}
 
         <section className="lobby-board-section" aria-labelledby="players-title">
           <div className="section-heading">

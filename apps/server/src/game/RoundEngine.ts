@@ -26,8 +26,10 @@ export class RoundEngine {
   private roundIdValue: number | null = null;
   private roundStartedAtValue: number | null = null;
   private roundEndsAtValue: number | null = null;
+  private pausedRemainingMs: number | null = null;
   private passesUsedValue = 0;
   private timer: TimerHandle | null = null;
+  private timerGeneration = 0;
 
   constructor(
     private readonly drawNextCard: () => TabuCard,
@@ -40,6 +42,10 @@ export class RoundEngine {
 
   get isActive(): boolean {
     return this.roundIdValue !== null;
+  }
+
+  get isPaused(): boolean {
+    return this.pausedRemainingMs !== null;
   }
 
   get currentCard(): TabuCard | null {
@@ -58,12 +64,14 @@ export class RoundEngine {
     scores: TeamScores;
     roundId: number | null;
     roundEndsAt: number | null;
+    roundPausedRemainingMs: number | null;
     passesUsed: number;
   } {
     return {
       scores: { ...this.scores },
       roundId: this.roundIdValue,
       roundEndsAt: this.roundEndsAtValue,
+      roundPausedRemainingMs: this.pausedRemainingMs,
       passesUsed: this.passesUsedValue
     };
   }
@@ -83,7 +91,30 @@ export class RoundEngine {
     this.passesUsedValue = 0;
     this.roundStartedAtValue = this.clock.now();
     this.roundEndsAtValue = this.roundStartedAtValue + durationSeconds * 1000;
-    this.timer = this.clock.setTimeout(() => this.finish(), durationSeconds * 1000);
+    this.scheduleExpiration(durationSeconds * 1000);
+  }
+
+  pause(): boolean {
+    if (!this.isActive || this.isPaused) return false;
+    if (this.expireIfDue()) return false;
+    const remainingMs = Math.max(0, this.roundEndsAtValue! - this.clock.now());
+    if (remainingMs <= 0) {
+      this.finish();
+      return false;
+    }
+    this.clearTimer();
+    this.pausedRemainingMs = remainingMs;
+    this.roundEndsAtValue = null;
+    return true;
+  }
+
+  resume(): boolean {
+    if (!this.isActive || this.pausedRemainingMs === null) return false;
+    const remainingMs = this.pausedRemainingMs;
+    this.pausedRemainingMs = null;
+    this.roundEndsAtValue = this.clock.now() + remainingMs;
+    this.scheduleExpiration(remainingMs);
+    return true;
   }
 
   applyAction(
@@ -93,7 +124,7 @@ export class RoundEngine {
     passLimit: number,
     targetScore: number
   ): RoundActionResult {
-    if (!this.isActive || !this.currentCardValue) {
+    if (!this.isActive || this.isPaused || !this.currentCardValue) {
       return { ok: false, error: "round-not-active" };
     }
     if (this.expireIfDue()) {
@@ -127,7 +158,7 @@ export class RoundEngine {
   }
 
   expireIfDue(): boolean {
-    if (this.isActive && this.roundEndsAtValue !== null && this.clock.now() >= this.roundEndsAtValue) {
+    if (this.isActive && !this.isPaused && this.roundEndsAtValue !== null && this.clock.now() >= this.roundEndsAtValue) {
       this.finish();
       return true;
     }
@@ -150,15 +181,28 @@ export class RoundEngine {
     this.onExpired();
   }
 
-  private clearCurrentRound(): void {
+  private scheduleExpiration(delayMs: number): void {
+    const generation = ++this.timerGeneration;
+    this.timer = this.clock.setTimeout(() => {
+      if (this.timerGeneration === generation && !this.isPaused) this.finish();
+    }, delayMs);
+  }
+
+  private clearTimer(): void {
+    this.timerGeneration += 1;
     if (this.timer !== null) {
       this.clock.clearTimeout(this.timer);
       this.timer = null;
     }
+  }
+
+  private clearCurrentRound(): void {
+    this.clearTimer();
     this.currentCardValue = null;
     this.roundIdValue = null;
     this.roundStartedAtValue = null;
     this.roundEndsAtValue = null;
+    this.pausedRemainingMs = null;
     this.passesUsedValue = 0;
   }
 }

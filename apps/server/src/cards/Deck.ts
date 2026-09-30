@@ -4,10 +4,9 @@ import { TABU_CARDS } from "./cards.js";
 import { validateCards } from "./validateCards.js";
 
 export type RandomIndex = (maxExclusive: number) => number;
+export type CardSelector = (candidates: readonly TabuCard[]) => TabuCard;
 
 export class Deck {
-  private shuffledCards: TabuCard[] = [];
-  private position = 0;
   private usedCardIds = new Set<string>();
   private previousCardId: string | null = null;
   private eligibleCards: readonly TabuCard[];
@@ -25,21 +24,19 @@ export class Deck {
       throw new Error("Eligible cards must be a nonempty subset of this deck.");
     }
     this.eligibleCards = cards;
-    this.shuffledCards = [];
-    this.position = 0;
   }
 
-  draw(): TabuCard {
-    if (this.position >= this.shuffledCards.length) {
-      this.startNewCycle();
+  draw(selectCard?: CardSelector): TabuCard {
+    let candidates = this.eligibleCards.filter((card) => !this.usedCardIds.has(card.id));
+    if (candidates.length === 0) {
+      for (const card of this.eligibleCards) this.usedCardIds.delete(card.id);
+      candidates = [...this.eligibleCards];
     }
-
-    const card = this.shuffledCards[this.position];
-    if (!card) {
-      throw new Error("Deck could not draw a card from its shuffled cycle.");
+    if (candidates.length > 1 && this.previousCardId) {
+      candidates = candidates.filter((card) => card.id !== this.previousCardId);
     }
-
-    this.position += 1;
+    const card = selectCard ? selectCard(candidates) : this.chooseRandom(candidates);
+    if (!candidates.includes(card)) throw new Error("Card selector returned an ineligible card.");
     this.usedCardIds.add(card.id);
     this.previousCardId = card.id;
     return card;
@@ -49,25 +46,11 @@ export class Deck {
     return this.usedCardIds.size;
   }
 
-  private startNewCycle(): void {
-    let cards = this.eligibleCards.filter((card) => !this.usedCardIds.has(card.id));
-    if (cards.length === 0) {
-      for (const card of this.eligibleCards) this.usedCardIds.delete(card.id);
-      cards = [...this.eligibleCards];
+  private chooseRandom(cards: readonly TabuCard[]): TabuCard {
+    const index = this.chooseIndex(cards.length);
+    if (!Number.isInteger(index) || index < 0 || index >= cards.length) {
+      throw new Error(`Random index ${index} is invalid for a deck of ${cards.length} cards.`);
     }
-    for (let index = cards.length - 1; index > 0; index -= 1) {
-      const swapIndex = this.chooseIndex(index + 1);
-      if (!Number.isInteger(swapIndex) || swapIndex < 0 || swapIndex > index) {
-        throw new Error(`Random index ${swapIndex} is invalid for a deck of ${cards.length} cards.`);
-      }
-      [cards[index], cards[swapIndex]] = [cards[swapIndex]!, cards[index]!];
-    }
-
-    if (cards.length > 1 && cards[0]?.id === this.previousCardId) {
-      [cards[0], cards[1]] = [cards[1]!, cards[0]!];
-    }
-
-    this.shuffledCards = cards;
-    this.position = 0;
+    return cards[index]!;
   }
 }

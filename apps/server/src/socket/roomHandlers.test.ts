@@ -53,33 +53,42 @@ test("card results reach every room member only after valid actions and reveal o
     client.on("room:state", (room) => { states[index] = room; });
   });
 
-  const created = await a1.emitWithAck("room:create", { name: "A1" });
+  assert.deepEqual(await a1.emitWithAck("room:create", { name: "A1", historyProfileId: "invalid" }), {
+    ok: false, error: "invalid-history-profile"
+  });
+  const created = await a1.emitWithAck("room:create", {
+    name: "A1",
+    historyProfileId: "11111111-1111-4111-8111-111111111111"
+  });
   assert.equal(created.ok, true);
   if (!created.ok) return;
   const code = created.room.code;
+  const playerIds = new Map<TestClient, string>([[a1, created.playerId]]);
   for (const [client, name] of [[a2, "A2"], [b1, "B1"], [b2, "B2"]] as const) {
-    assert.equal((await client.emitWithAck("room:join", { name, roomCode: code })).ok, true);
+    const joined = await client.emitWithAck("room:join", { name, roomCode: code });
+    assert.equal(joined.ok, true);
+    if (joined.ok) playerIds.set(client, joined.playerId);
   }
-  assert.deepEqual(await a2.emitWithAck("room:move-player", { playerId: a2.id!, team: "A" }), {
+  assert.deepEqual(await a2.emitWithAck("room:move-player", { playerId: playerIds.get(a2)!, team: "A" }), {
     ok: false, error: "not-host"
   });
   await waitFor(() => states.every((state) => state?.players.length === 4));
-  assert.equal(states[1]?.players.find((player) => player.id === a2.id)?.team, null);
+  assert.equal(states[1]?.players.find((player) => player.id === playerIds.get(a2))?.team, null);
   for (const client of [a1, a2]) {
-    assert.deepEqual(await a1.emitWithAck("room:move-player", { playerId: client.id!, team: "A" }), { ok: true });
+    assert.deepEqual(await a1.emitWithAck("room:move-player", { playerId: playerIds.get(client)!, team: "A" }), { ok: true });
   }
   for (const client of [b1, b2]) {
-    assert.deepEqual(await a1.emitWithAck("room:move-player", { playerId: client.id!, team: "B" }), { ok: true });
+    assert.deepEqual(await a1.emitWithAck("room:move-player", { playerId: playerIds.get(client)!, team: "B" }), { ok: true });
   }
-  await waitFor(() => states.every((state) => state?.players.find((player) => player.id === b2.id)?.team === "B"));
-  assert.ok(states.every((state) => state?.players.find((player) => player.id === a2.id)?.team === "A"));
+  await waitFor(() => states.every((state) => state?.players.find((player) => player.id === playerIds.get(b2))?.team === "B"));
+  assert.ok(states.every((state) => state?.players.find((player) => player.id === playerIds.get(a2))?.team === "A"));
   assert.deepEqual(await a2.emitWithAck("room:update-settings", { setting: "targetScore", value: 10 }), {
     ok: false, error: "not-host"
   });
   assert.deepEqual(await a1.emitWithAck("room:update-settings", { setting: "targetScore", value: 10 }), { ok: true });
   await waitFor(() => states.every((state) => state?.settings.targetScore === 10));
-  assert.deepEqual(await a1.emitWithAck("room:set-captain", { team: "A", captainId: a2.id! }), { ok: true });
-  assert.deepEqual(await a1.emitWithAck("room:set-captain", { team: "B", captainId: b1.id! }), { ok: true });
+  assert.deepEqual(await a1.emitWithAck("room:set-captain", { team: "A", captainId: playerIds.get(a2)! }), { ok: true });
+  assert.deepEqual(await a1.emitWithAck("room:set-captain", { team: "B", captainId: playerIds.get(b1)! }), { ok: true });
   assert.deepEqual(await a1.emitWithAck("game:start"), { ok: true });
   assert.deepEqual(await a1.emitWithAck("game:start-round"), { ok: true });
   await waitFor(() => views.every((view) => view?.roundId === 1));

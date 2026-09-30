@@ -7,6 +7,9 @@
 .room-code { margin: 5px 0 0; color: #2e334c; font-size: 24px; font-weight: 1000; letter-spacing: 0.13em; line-height: 1; }
 .copy-button { min-height: 43px; white-space: nowrap; }
 .copy-message { min-height: 22px; margin: 0 8px 9px; color: var(--green); font-size: 12px; font-weight: 800; text-align: right; }
+.history-note { margin: -6px 8px 12px; color: var(--muted); font-size: 12px; font-weight: 700; text-align: right; }
+.reconnect-badge { color: var(--muted); font-size: 11px; }
+.round-reconnecting { margin: 12px 0; padding: 12px 16px; border-radius: 12px; background: #fff4d6; color: #71501a; font-weight: 700; text-align: center; }
 .lobby-board-section { padding: 26px; border: 2px solid #ece5dc; border-radius: 24px; background: #fffdfa; box-shadow: var(--shadow); }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 15px; margin-bottom: 19px; }
 .section-heading h2 { margin: 5px 0 0; font-size: 23px; letter-spacing: -0.045em; }

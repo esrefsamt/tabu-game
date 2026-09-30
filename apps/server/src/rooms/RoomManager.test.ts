@@ -23,6 +23,7 @@ test("room state keeps Phase 4 lobby features and never includes private deck st
     scores: { A: 0, B: 0 },
     roundId: null,
     roundEndsAt: null,
+    roundPausedRemainingMs: null,
     passesUsed: 0
   });
 

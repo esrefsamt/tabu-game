@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "tsx --tsconfig tsconfig.app.json --test src/components/*.test.tsx",
+    "test": "tsx --tsconfig tsconfig.app.json --test src/components/*.test.tsx src/lib/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {

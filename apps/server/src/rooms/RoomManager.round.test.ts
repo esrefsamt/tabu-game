@@ -2,14 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RoomState } from "@tabu/shared";
 import { FakeRoundClock } from "../game/FakeRoundClock.test-helper.js";
+import { InMemoryCardHistoryStore } from "../cards/history/CardHistoryStore.js";
 import { RoomManager } from "./RoomManager.js";
 
-function prepareGame(passLimit: 0 | 1 | 2 | 3 | 4 | 5 | 10 = 3) {
+function prepareGame(
+  passLimit: 0 | 1 | 2 | 3 | 4 | 5 | 10 = 3,
+  history = new InMemoryCardHistoryStore()
+) {
   const clock = new FakeRoundClock();
-  const rooms = new RoomManager(clock);
+  const rooms = new RoomManager(clock, history);
   const published: RoomState[] = [];
   rooms.setStatePublisher((_roomCode, room) => published.push(room));
-  const code = rooms.createRoom("a1", "A1").code;
+  const code = rooms.createRoom("a1", "A1", "round-test-profile").code;
   for (const id of ["a2", "b1", "b2"]) {
     assert.equal(rooms.joinRoom(id, id.toUpperCase(), code).ok, true);
   }
@@ -20,7 +24,7 @@ function prepareGame(passLimit: 0 | 1 | 2 | 3 | 4 | 5 | 10 = 3) {
   assert.equal(rooms.updateSettings(code, "a1", { setting: "roundDurationSeconds", value: 30 }).ok, true);
   assert.equal(rooms.updateSettings(code, "a1", { setting: "passLimit", value: passLimit }).ok, true);
   assert.equal(rooms.startGame(code, "a1").ok, true);
-  return { rooms, code, clock, published };
+  return { rooms, code, clock, published, history };
 }
 
 function startedRound(passLimit: 0 | 1 | 2 | 3 | 4 | 5 | 10 = 3) {
@@ -45,6 +49,34 @@ test("only the current clue giver can start a round and starting draws a card", 
   assert.deepEqual(rooms.startRound(code, "a1"), { ok: false, error: "round-not-ready" });
 });
 
+test("a card is recorded when activated and remains recorded after timeout", () => {
+  const { rooms, code, clock, history } = startedRound();
+  const cardId = rooms.getPersonalGameView(code, "a1")!.currentCard!.id;
+  assert.deepEqual(history.get("round-test-profile", cardId), {
+    cardId, lastSeenAt: clock.now(), timesSeen: 1
+  });
+  clock.advance(30_000);
+  assert.equal(history.get("round-test-profile", cardId)?.timesSeen, 1);
+});
+
+test("a card remains recorded when the active clue giver disconnects", () => {
+  const { rooms, code, history } = startedRound();
+  const cardId = rooms.getPersonalGameView(code, "a1")!.currentCard!.id;
+  rooms.removePlayer(code, "a1");
+  assert.equal(history.get("round-test-profile", cardId)?.timesSeen, 1);
+  assert.equal(rooms.getPersonalGameView(code, "b1")?.currentCard, null);
+});
+
+test("host transfer keeps the room creator's history profile", () => {
+  const { rooms, code, history } = prepareGame();
+  rooms.removePlayer(code, "a1");
+  const started = rooms.startRound(code, "a2");
+  assert.equal(started.ok, true);
+  const cardId = rooms.getPersonalGameView(code, "a2")?.currentCard?.id;
+  assert.ok(cardId);
+  assert.equal(history.get("round-test-profile", cardId)?.timesSeen, 1);
+});
+
 test("Team A clue giver and every Team B player see only the current card", () => {
   const { rooms, code, state } = startedRound();
   const clueView = rooms.getPersonalGameView(code, "a1")!;
@@ -60,6 +92,9 @@ test("Team A clue giver and every Team B player see only the current card", () =
   assert.equal(Object.hasOwn(state, "deck"), false);
   assert.equal(Object.hasOwn(state.game, "currentCard"), false);
   assert.equal(JSON.stringify(state).includes("forbiddenWords"), false);
+  assert.equal(JSON.stringify(state).includes("historyProfile"), false);
+  assert.equal(JSON.stringify(state).includes("round-test-profile"), false);
+  assert.equal(JSON.stringify(clueView).includes("history"), false);
   assert.deepEqual(Object.keys(clueView).sort(), ["cardVersion", "currentCard", "roundId"]);
 });
 

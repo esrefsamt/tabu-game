@@ -7,6 +7,8 @@ function errorMessage(error: RoomErrorCode): string {
   switch (error) {
     case "invalid-name":
       return "Geçerli bir oyuncu adı gir.";
+    case "invalid-history-profile":
+      return "Kart geçmişi profili oluşturulamadı. Lütfen tekrar dene.";
     case "invalid-room-code":
       return "Geçerli bir oda kodu gir.";
     case "room-not-found":
@@ -29,7 +31,10 @@ function HomePage() {
   const navigate = useNavigate();
   const [playerName, setPlayerName] = useState("");
   const [roomCode, setRoomCode] = useState(searchParams.get("room")?.toUpperCase() ?? "");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    searchParams.has("sessionMoved") ? "Oturum başka sekmede açıldı. Devam etmek için tekrar katıl."
+      : searchParams.has("sessionExpired") ? "Oturum süresi doldu. Odaya tekrar katıl." : null
+  );
   const [pending, setPending] = useState(false);
 
   function handleResponse(response: RoomActionResponse): void {

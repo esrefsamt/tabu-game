@@ -28,6 +28,7 @@ function PlayerFace({ player, captainId }: { player: Player; captainId: string |
     <>
       <span className="player-avatar" aria-hidden="true">{player.name.trim().charAt(0).toLocaleUpperCase("tr-TR")}</span>
       <span className="player-chip-name">{player.name}</span>
+      {!player.isConnected && <span className="reconnect-badge">Bağlantı bekleniyor…</span>}
       <span className="player-badges">
         {player.isHost && <span className="host-badge">Host</span>}
         {player.id === captainId && <span className="captain-badge">Kaptan</span>}

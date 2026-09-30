@@ -11,6 +11,7 @@ import type {
   PersonalGameView,
   RoomActionResponse,
   RoomState,
+  ResumeRoomResponse,
   ReturnToLobbyResponse,
   RoundStartResponse,
   SettingsActionResponse,
@@ -18,15 +19,20 @@ import type {
   ServerToClientEvents,
   UpdateRoomSettingsPayload
 } from "@tabu/shared";
+import { getCardHistoryProfileId } from "./cardHistoryProfile";
+import { clearRoomSession, loadRoomSession, saveRoomSession } from "./roomSession";
 
 export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
-  import.meta.env.VITE_SOCKET_URL || "/",
+  import.meta.env.VITE_SERVER_URL?.trim() || "/",
   { autoConnect: true }
 );
 
 let activeRoom: RoomState | null = null;
+let currentPlayerId: string | null = null;
+let resumePending: Promise<"ok" | "invalid" | "unavailable"> | null = null;
 const EMPTY_GAME_VIEW: PersonalGameView = { roundId: null, cardVersion: null, currentCard: null };
 let personalGameView: PersonalGameView = EMPTY_GAME_VIEW;
+let pendingGameView: PersonalGameView | null = null;
 const unassignedRoomStates = new Map<string, RoomState>();
 const roomStateListeners = new Set<() => void>();
 const gameViewListeners = new Set<() => void>();
@@ -40,6 +46,10 @@ function setActiveRoom(room: RoomState | null): void {
     setPersonalGameView(EMPTY_GAME_VIEW);
   }
   activeRoom = room;
+  if (room && pendingGameView?.roundId === room.game.roundId) {
+    setPersonalGameView(pendingGameView);
+  }
+  pendingGameView = null;
   notifyRoomStateListeners();
 }
 
@@ -59,6 +69,8 @@ socket.on("room:state", (room) => {
 socket.on("game:view", (view) => {
   if (activeRoom?.game.phase === "round-active" && activeRoom.game.roundId === view.roundId) {
     setPersonalGameView(view);
+  } else if (!activeRoom) {
+    pendingGameView = view;
   } else if (view.currentCard === null) {
     setPersonalGameView(EMPTY_GAME_VIEW);
   }
@@ -66,8 +78,57 @@ socket.on("game:view", (view) => {
 
 socket.on("disconnect", () => {
   unassignedRoomStates.clear();
+  pendingGameView = null;
   setActiveRoom(null);
 });
+
+socket.on("room:session-moved", () => {
+  unassignedRoomStates.clear();
+  pendingGameView = null;
+  currentPlayerId = null;
+  setActiveRoom(null);
+});
+
+export function getCurrentPlayerId(): string | null {
+  return currentPlayerId;
+}
+
+export function hasRoomSession(roomCode: string): boolean {
+  return loadRoomSession(roomCode) !== null;
+}
+
+export function resumeRoom(roomCode: string): Promise<"ok" | "invalid" | "unavailable"> {
+  if (activeRoom?.code === roomCode.toUpperCase() && socket.connected) return Promise.resolve("ok");
+  if (resumePending) return resumePending;
+  const saved = loadRoomSession(roomCode);
+  if (!saved) return Promise.resolve("invalid");
+  if (!socket.connected) return Promise.resolve("unavailable");
+  const request = new Promise<"ok" | "invalid" | "unavailable">((resolve) => {
+    let completed = false;
+    const timeout = window.setTimeout(() => {
+      if (!completed) { completed = true; resolve("unavailable"); }
+    }, 8000);
+    socket.emit("room:resume", { roomCode: saved.roomCode, sessionToken: saved.sessionToken },
+      (response: ResumeRoomResponse) => {
+        if (completed) return;
+        completed = true;
+        window.clearTimeout(timeout);
+        if (response.ok) {
+          currentPlayerId = response.playerId;
+          const latest = unassignedRoomStates.get(response.room.code);
+          unassignedRoomStates.clear();
+          setActiveRoom(latest ?? response.room);
+          resolve("ok");
+        } else {
+          clearRoomSession(saved.roomCode);
+          currentPlayerId = null;
+          resolve("invalid");
+        }
+      });
+  }).finally(() => { resumePending = null; });
+  resumePending = request;
+  return request;
+}
 
 export function getActiveRoom(): RoomState | null {
   return activeRoom;
@@ -103,6 +164,8 @@ function requestRoomAction(
       completed = true;
       window.clearTimeout(timeout);
       if (response.ok) {
+        currentPlayerId = response.playerId;
+        saveRoomSession({ roomCode: response.room.code, playerId: response.playerId, sessionToken: response.sessionToken });
         const latestRoomState = unassignedRoomStates.get(response.room.code);
         unassignedRoomStates.clear();
         setActiveRoom(latestRoomState ?? response.room);
@@ -114,7 +177,7 @@ function requestRoomAction(
 
 export function createRoom(name: string): Promise<RoomActionResponse> {
   return requestRoomAction((acknowledge) => {
-    socket.emit("room:create", { name }, acknowledge);
+    socket.emit("room:create", { name, historyProfileId: getCardHistoryProfileId() }, acknowledge);
   });
 }
 
@@ -122,6 +185,15 @@ export function joinRoom(name: string, roomCode: string): Promise<RoomActionResp
   return requestRoomAction((acknowledge) => {
     socket.emit("room:join", { name, roomCode }, acknowledge);
   });
+}
+
+export async function leaveRoom(): Promise<void> {
+  const roomCode = activeRoom?.code;
+  if (!roomCode) return;
+  if (socket.connected) await socket.timeout(3000).emitWithAck("room:leave").catch(() => undefined);
+  clearRoomSession(roomCode);
+  currentPlayerId = null;
+  setActiveRoom(null);
 }
 
 export function movePlayer(payload: MovePlayerPayload): Promise<MovePlayerResponse> {

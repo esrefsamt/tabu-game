@@ -47,7 +47,7 @@ const samples: readonly TabuCard[] = [
 ];
 
 test("changing eligible pools retains used cards; exhaustion resets only current pool", () => {
-  const deck = new Deck(samples, (max) => max - 1);
+  const deck = new Deck(samples, () => 0);
   deck.setEligibleCards(samples.slice(0, 2));
   assert.equal(deck.draw().id, "a");
   deck.setEligibleCards(samples.slice(2));
@@ -63,7 +63,7 @@ test("changing eligible pools retains used cards; exhaustion resets only current
 });
 
 test("room decks stay independent through category changes", () => {
-  const rooms = new RoomDeckStore(samples, (max) => max - 1);
+  const rooms = new RoomDeckStore(samples, () => 0);
   rooms.create("A"); rooms.create("B");
   rooms.setEligibleCards("A", samples.slice(0, 2));
   assert.equal(rooms.draw("A").id, "a");

@@ -12,18 +12,25 @@ import type {
 } from "@tabu/shared";
 import { RoomManager } from "./rooms/RoomManager.js";
 import { registerRoomHandlers } from "./socket/roomHandlers.js";
+import { JsonFileCardHistoryStore } from "./cards/history/CardHistoryStore.js";
+import { loadServerConfig, isAllowedOrigin } from "./serverConfig.js";
 
+const config = loadServerConfig();
 const app = express();
 const httpServer = createServer(app);
-const port = Number(process.env.PORT ?? 3001);
-const clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173";
 
-app.use(cors({ origin: clientOrigin }));
+app.use(cors({ origin: (origin, callback) => callback(null, isAllowedOrigin(origin, config.clientOrigin)) }));
 app.use(express.json());
 
 app.get("/api/health", (_request, response) => {
   const health: HealthResponse = { status: "ok" };
   response.json(health);
+});
+
+app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  console.error("HTTP request failed.");
+  const malformedJson = error instanceof SyntaxError;
+  response.status(malformedJson ? 400 : 500).json({ error: malformedJson ? "bad-request" : "internal-error" });
 });
 
 const io = new Server<
@@ -33,13 +40,35 @@ const io = new Server<
   SocketData
 >(httpServer, {
   cors: {
-    origin: clientOrigin,
+    origin: config.clientOrigin,
     methods: ["GET", "POST"]
-  }
+  },
+  allowRequest: (request, callback) => callback(null, isAllowedOrigin(request.headers.origin, config.clientOrigin))
 });
 
-registerRoomHandlers(io, new RoomManager());
+registerRoomHandlers(io, new RoomManager(undefined, new JsonFileCardHistoryStore(config.historyFile)));
 
-httpServer.listen(port, () => {
-  console.log(`Tabu API listening on http://localhost:${port}`);
+httpServer.listen(config.port, () => {
+  console.info(`Tabu server listening on port ${config.port} (${config.mode}).`);
+  console.info(`Client origin: ${config.clientOrigin}`);
+  console.info(`Card history file: ${config.historyFile}`);
 });
+
+let shuttingDown = false;
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.info(`Received ${signal}; closing server.`);
+  // History writes are synchronous; there is no pending write queue to drain.
+  io.close(() => {
+    console.info("Server closed.");
+    process.exitCode = 0;
+  });
+  setTimeout(() => {
+    console.error("Server shutdown timed out.");
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

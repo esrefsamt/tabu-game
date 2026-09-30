@@ -99,6 +99,58 @@ test("an action at the deadline expires the round before it can score", () => {
   assert.equal(clock.activeTimerCount, 0);
 });
 
+test("pause freezes the authoritative remaining time, card, version, score, and passes", () => {
+  const { round, clock, expiredCount, drawCount } = roundFixture();
+  round.start(60);
+  round.applyAction("correct", round.cardVersion!, "A", 3, 30);
+  round.applyAction("pass", round.cardVersion!, "A", 3, 30);
+  const card = round.currentCard;
+  const version = round.cardVersion;
+  const roundId = round.publicState.roundId;
+  const draws = drawCount();
+  clock.advance(23_000);
+  assert.equal(round.pause(), true);
+  assert.equal(round.isPaused, true);
+  assert.equal(round.publicState.roundPausedRemainingMs, 37_000);
+  assert.equal(round.publicState.roundEndsAt, null);
+  assert.equal(clock.activeTimerCount, 0);
+  assert.equal(round.currentCard, card);
+  assert.equal(round.cardVersion, version);
+  assert.equal(round.publicState.roundId, roundId);
+  assert.deepEqual(round.publicState.scores, { A: 1, B: 0 });
+  assert.equal(round.publicState.passesUsed, 1);
+  for (const action of ["correct", "pass", "tabu"] as const) {
+    assert.deepEqual(round.applyAction(action, version!, "A", 3, 30), { ok: false, error: "round-not-active" });
+  }
+  clock.advance(3_000);
+  assert.equal(expiredCount(), 0);
+  assert.equal(round.publicState.roundPausedRemainingMs, 37_000);
+  assert.equal(round.resume(), true);
+  assert.equal(round.publicState.roundEndsAt, clock.now() + 37_000);
+  assert.equal(round.publicState.roundPausedRemainingMs, null);
+  assert.equal(clock.activeTimerCount, 1);
+  assert.equal(drawCount(), draws);
+  assert.equal(round.currentCard, card);
+  assert.equal(round.cardVersion, version);
+  clock.advance(36_999);
+  assert.equal(expiredCount(), 0);
+  clock.advance(1);
+  assert.equal(expiredCount(), 1);
+  assert.equal(clock.activeTimerCount, 0);
+  round.dispose();
+});
+
+test("a round already due expires instead of pausing", () => {
+  const { round, clock, expiredCount } = roundFixture();
+  round.start(30);
+  clock.elapseWithoutRunning(30_000);
+  assert.equal(round.pause(), false);
+  assert.equal(round.isActive, false);
+  assert.equal(round.isPaused, false);
+  assert.equal(expiredCount(), 1);
+  assert.equal(clock.activeTimerCount, 0);
+});
+
 test("scores persist and the pass count resets between rounds", () => {
   const { round, clock } = roundFixture();
   round.start(30);
