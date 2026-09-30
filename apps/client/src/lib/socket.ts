@@ -6,6 +6,8 @@ import type {
   CardActionResponse,
   ClientToServerEvents,
   GameStartResponse,
+  KickPlayerPayload,
+  KickPlayerResponse,
   MovePlayerPayload,
   MovePlayerResponse,
   PersonalGameView,
@@ -30,6 +32,8 @@ export const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
 let activeRoom: RoomState | null = null;
 let currentPlayerId: string | null = null;
 let resumePending: Promise<"ok" | "invalid" | "unavailable"> | null = null;
+let sessionEpoch = 0;
+let lastKickedRoomCode: string | null = null;
 const EMPTY_GAME_VIEW: PersonalGameView = { roundId: null, cardVersion: null, currentCard: null };
 let personalGameView: PersonalGameView = EMPTY_GAME_VIEW;
 let pendingGameView: PersonalGameView | null = null;
@@ -83,11 +87,26 @@ socket.on("disconnect", () => {
 });
 
 socket.on("room:session-moved", () => {
+  sessionEpoch += 1;
   unassignedRoomStates.clear();
   pendingGameView = null;
   currentPlayerId = null;
   setActiveRoom(null);
 });
+
+socket.on("room:kicked", ({ roomCode }) => {
+  sessionEpoch += 1;
+  lastKickedRoomCode = roomCode;
+  clearRoomSession(roomCode);
+  currentPlayerId = null;
+  unassignedRoomStates.clear();
+  pendingGameView = null;
+  setActiveRoom(null);
+});
+
+export function getLastKickedRoomCode(): string | null {
+  return lastKickedRoomCode;
+}
 
 export function getCurrentPlayerId(): string | null {
   return currentPlayerId;
@@ -103,6 +122,7 @@ export function resumeRoom(roomCode: string): Promise<"ok" | "invalid" | "unavai
   const saved = loadRoomSession(roomCode);
   if (!saved) return Promise.resolve("invalid");
   if (!socket.connected) return Promise.resolve("unavailable");
+  const requestEpoch = sessionEpoch;
   const request = new Promise<"ok" | "invalid" | "unavailable">((resolve) => {
     let completed = false;
     const timeout = window.setTimeout(() => {
@@ -113,6 +133,7 @@ export function resumeRoom(roomCode: string): Promise<"ok" | "invalid" | "unavai
         if (completed) return;
         completed = true;
         window.clearTimeout(timeout);
+        if (requestEpoch !== sessionEpoch) { resolve("invalid"); return; }
         if (response.ok) {
           currentPlayerId = response.playerId;
           const latest = unassignedRoomStates.get(response.room.code);
@@ -164,6 +185,7 @@ function requestRoomAction(
       completed = true;
       window.clearTimeout(timeout);
       if (response.ok) {
+        lastKickedRoomCode = null;
         currentPlayerId = response.playerId;
         saveRoomSession({ roomCode: response.room.code, playerId: response.playerId, sessionToken: response.sessionToken });
         const latestRoomState = unassignedRoomStates.get(response.room.code);
@@ -199,6 +221,14 @@ export async function leaveRoom(): Promise<void> {
 export function movePlayer(payload: MovePlayerPayload): Promise<MovePlayerResponse> {
   return requestLobbyAction<MovePlayerResponse>(
     (acknowledge) => socket.emit("room:move-player", payload, acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+export function kickPlayer(payload: KickPlayerPayload): Promise<KickPlayerResponse> {
+  return requestLobbyAction<KickPlayerResponse>(
+    (acknowledge) => socket.emit("room:kick-player", payload, acknowledge),
     { ok: false, error: "server-unavailable" },
     { ok: false, error: "request-timeout" }
   );

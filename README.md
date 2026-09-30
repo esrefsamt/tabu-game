@@ -37,3 +37,9 @@ Configure the static client host to serve `index.html` for unknown application p
 Mount persistent storage and set `CARD_HISTORY_FILE` to a path on that mount if cross-day card history must survive restarts and redeployments. A normal ephemeral app filesystem will lose this history. The server creates the parent directory when writing, writes to a temporary file, flushes it, and renames it into place. Use one server process for this JSON store; multiple replicas need coordinated storage in a later architecture phase. Runtime history files and temporary writes must not be committed.
 
 Use `npm run test`, `npm run typecheck`, `npm run build`, `npm run cards:quality`, and `npm audit` for verification. After building, `npm run smoke:production` starts the compiled server with a temporary production-style configuration, verifies health/CORS/WebSocket room creation and joining, checks the client bundle, and loads a direct room URL from Vite preview.
+
+## Room match history and wins
+
+The server keeps the latest 30 match actions in each room and sends them in the public room state, including on reconnect. A resolved card's main word appears in the action history; forbidden words and the current card remain private. **Tekrar Oyna** clears the action history for the new match.
+
+Room wins belong to each current player identity. Every player on the winning team receives one win when the match ends. Wins survive rematches, team changes, and session resume. Leaving or being kicked removes that identity; joining again starts at zero. Closing the room removes all room wins.

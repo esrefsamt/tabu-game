@@ -20,6 +20,100 @@ function matchFixture() {
   return { rooms, clock, code, published };
 }
 
+function score(rooms: RoomManager, code: string, playerId: string, count: number): void {
+  for (let index = 0; index < count; index += 1) {
+    const version = rooms.getPersonalGameView(code, playerId)?.cardVersion;
+    assert.ok(version);
+    assert.equal(rooms.cardAction(code, playerId, { action: "correct", cardVersion: version }).ok, true);
+  }
+}
+
+function playRound(rooms: RoomManager, clock: FakeRoundClock, code: string, playerId: string, points: number): RoomState {
+  assert.equal(rooms.startRound(code, playerId).ok, true);
+  score(rooms, code, playerId, points);
+  clock.advance(60_000);
+  return rooms.getRoomState(code)!;
+}
+
+test("equal completed turns decide 10 vs 9 and 10 vs 12, but neither below-target lead nor an unequal turn can win", () => {
+  for (const [aPoints, bPoints, winner] of [[10, 9, "A"], [10, 12, "B"], [8, 6, null]] as const) {
+    const { rooms, code, clock } = matchFixture();
+    assert.equal(rooms.updateSettings(code, "a1", { setting: "targetScore", value: 10 }).ok, true);
+    assert.equal(rooms.startGame(code, "a1").ok, true);
+    const afterA = playRound(rooms, clock, code, "a1", aPoints);
+    assert.deepEqual(afterA.game.completedRounds, { A: 1, B: 0 });
+    assert.equal(afterA.game.winnerTeam, null);
+    assert.equal(afterA.game.activeTeam, "B");
+    const afterB = playRound(rooms, clock, code, "b1", bPoints);
+    assert.deepEqual(afterB.game.completedRounds, { A: 1, B: 1 });
+    assert.equal(afterB.game.winnerTeam, winner);
+    if (!winner) assert.equal(afterB.game.activeTeam, "A");
+  }
+});
+
+test("a temporary target hit does not win if Tabu reduces the final score below target", () => {
+  const { rooms, code, clock } = matchFixture();
+  rooms.updateSettings(code, "a1", { setting: "targetScore", value: 10 });
+  rooms.startGame(code, "a1");
+  rooms.startRound(code, "a1");
+  score(rooms, code, "a1", 10);
+  const version = rooms.getPersonalGameView(code, "b1")?.cardVersion;
+  assert.ok(version);
+  assert.equal(rooms.cardAction(code, "b1", { action: "tabu", cardVersion: version }).ok, true);
+  assert.equal(rooms.getRoomState(code)?.game.scores.A, 9);
+  clock.advance(60_000);
+  const afterB = playRound(rooms, clock, code, "b1", 0);
+  assert.deepEqual(afterB.game.completedRounds, { A: 1, B: 1 });
+  assert.equal(afterB.game.winnerTeam, null);
+});
+
+test("a tie at target enters paired overtime, and further ties continue until an equal-turn lead", () => {
+  const { rooms, code, clock } = matchFixture();
+  assert.equal(rooms.updateSettings(code, "a1", { setting: "targetScore", value: 10 }).ok, true);
+  assert.equal(rooms.startGame(code, "a1").ok, true);
+  playRound(rooms, clock, code, "a1", 12);
+  let state = playRound(rooms, clock, code, "b1", 12);
+  assert.deepEqual(state.game.scores, { A: 12, B: 12 });
+  assert.deepEqual(state.game.completedRounds, { A: 1, B: 1 });
+  assert.equal(state.game.winnerTeam, null);
+  assert.equal(state.game.isOvertime, true);
+
+  state = playRound(rooms, clock, code, "a2", 1);
+  assert.deepEqual(state.game.completedRounds, { A: 2, B: 1 });
+  assert.equal(state.game.winnerTeam, null);
+  state = playRound(rooms, clock, code, "b1", 1);
+  assert.deepEqual(state.game.completedRounds, { A: 2, B: 2 });
+  assert.equal(state.game.winnerTeam, null);
+  assert.equal(state.game.isOvertime, true);
+
+  playRound(rooms, clock, code, "a1", 2);
+  state = playRound(rooms, clock, code, "b1", 1);
+  assert.deepEqual(state.game.scores, { A: 15, B: 14 });
+  assert.deepEqual(state.game.completedRounds, { A: 3, B: 3 });
+  assert.equal(state.game.winnerTeam, "A");
+  assert.equal(state.game.phase, "game-over");
+});
+
+test("pause and resume do not complete a turn; permanent clue-giver departure completes it once", () => {
+  const { rooms, code, clock } = matchFixture();
+  assert.equal(rooms.updateSettings(code, "a1", { setting: "targetScore", value: 10 }).ok, true);
+  assert.equal(rooms.startGame(code, "a1").ok, true);
+  assert.equal(rooms.startRound(code, "a1").ok, true);
+  score(rooms, code, "a1", 10);
+  assert.equal(rooms.temporarilyDisconnectPlayer(code, "a1")?.game.roundPausedRemainingMs, 60_000);
+  clock.advance(90_000);
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 0, B: 0 });
+  assert.equal(rooms.reconnectPlayer(code, "a1")?.game.roundPausedRemainingMs, null);
+  assert.equal(rooms.removePlayer(code, "a1")?.game.activeTeam, "B");
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 1, B: 0 });
+  clock.advance(90_000);
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 1, B: 0 });
+  assert.equal(rooms.startRound(code, "b1").ok, true);
+  clock.advance(60_000);
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 1, B: 1 });
+  assert.equal(rooms.getRoomState(code)?.game.winnerTeam, "A");
+});
+
 test("target score defaults to 30 and only the host can set an allowed value in the lobby", () => {
   const { rooms, code } = matchFixture();
   assert.equal(rooms.createRoom("other", "Other").settings.targetScore, 30);
@@ -51,7 +145,7 @@ test("target score defaults to 30 and only the host can set an allowed value in 
   });
 });
 
-test("winning Correct ends the match once, clears private cards and timer, and freezes the result", () => {
+test("target Correct keeps Team A's round active; winner waits for Team B's equal turn", () => {
   const { rooms, clock, code, published } = matchFixture();
   assert.equal(rooms.updateSettings(code, "a1", { setting: "targetScore", value: 10 }).ok, true);
   assert.equal(rooms.startGame(code, "a1").ok, true);
@@ -71,21 +165,19 @@ test("winning Correct ends the match once, clears private cards and timer, and f
     if (!result.ok) throw new Error("Correct action failed.");
     assert.deepEqual(result.cardResult, { action: "correct", word: view.currentCard!.word });
     assert.equal(result.room.game.scores.A, score);
-    if (score < 10) {
-      assert.equal(result.room.game.phase, "round-active");
-      assert.equal(result.room.game.winnerTeam, null);
-      assert.ok(rooms.getPersonalGameView(code, "a1")?.currentCard);
-    } else {
-      assert.equal(result.room.game.phase, "game-over");
-      assert.equal(result.room.game.winnerTeam, "A");
-      assert.deepEqual(result.room.game.scores, { A: 10, B: 0 });
-      assert.equal(result.room.game.roundId, null);
-      assert.equal(result.room.game.roundEndsAt, null);
-      assert.equal(result.room.game.activeTeam, null);
-      assert.equal(result.room.game.clueGiverId, null);
-    }
+    assert.equal(result.room.game.phase, "round-active");
+    assert.equal(result.room.game.winnerTeam, null);
+    assert.ok(rooms.getPersonalGameView(code, "a1")?.currentCard);
   }
-
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 0, B: 0 });
+  assert.equal(clock.activeTimerCount, 1);
+  clock.advance(60_000);
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 1, B: 0 });
+  assert.equal(rooms.getRoomState(code)?.game.phase, "turn-preparation");
+  assert.equal(rooms.startRound(code, "b1").ok, true);
+  clock.advance(60_000);
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 1, B: 1 });
+  assert.equal(rooms.getRoomState(code)?.game.winnerTeam, "A");
   assert.equal(clock.activeTimerCount, 0);
   for (const id of ["a1", "a2", "b1"]) {
     assert.deepEqual(rooms.getPersonalGameView(code, id), {
@@ -110,7 +202,7 @@ test("winning Correct ends the match once, clears private cards and timer, and f
     ok: false, error: "game-already-started"
   });
   clock.advance(60_000);
-  assert.equal(published.length, 0);
+  assert.equal(published.length, 2);
   const afterDisconnect = rooms.removePlayer(code, "a1");
   assert.equal(afterDisconnect?.game.phase, "game-over");
   assert.equal(afterDisconnect?.game.winnerTeam, "A");
@@ -118,7 +210,7 @@ test("winning Correct ends the match once, clears private cards and timer, and f
   assert.equal(afterDisconnect?.players.find((player) => player.id === "a2")?.isHost, true);
 });
 
-test("Team B can win on its turn without advancing again", () => {
+test("Team B wins only after its matching round finishes", () => {
   const { rooms, clock, code, published } = matchFixture();
   assert.equal(rooms.updateSettings(code, "a1", { setting: "targetScore", value: 10 }).ok, true);
   assert.equal(rooms.startGame(code, "a1").ok, true);
@@ -131,13 +223,14 @@ test("Team B can win on its turn without advancing again", () => {
     assert.ok(version);
     const result = rooms.cardAction(code, "b1", { action: "correct", cardVersion: version });
     assert.equal(result.ok, true);
-    if (result.ok && score === 10) {
-      assert.equal(result.room.game.winnerTeam, "B");
-      assert.deepEqual(result.room.game.scores, { A: 0, B: 10 });
-    }
+    if (result.ok) assert.equal(result.room.game.winnerTeam, null);
   }
+  assert.equal(clock.activeTimerCount, 1);
+  clock.advance(60_000);
+  assert.equal(rooms.getRoomState(code)?.game.winnerTeam, "B");
+  assert.deepEqual(rooms.getRoomState(code)?.game.scores, { A: 0, B: 10 });
   assert.equal(clock.activeTimerCount, 0);
   assert.equal(rooms.advanceTurn(code), null);
   clock.advance(60_000);
-  assert.equal(published.length, 1);
+  assert.equal(published.length, 2);
 });

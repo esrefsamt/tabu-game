@@ -5,6 +5,9 @@ import type {
   CaptainActionError,
   GameStartError,
   MovePlayerError,
+  KickPlayerError,
+  MatchEvent,
+  MatchEventType,
   PersonalGameView,
   Player,
   PublicGameState,
@@ -42,11 +45,16 @@ const LOBBY_GAME_STATE: PublicGameState = {
   clueGiverId: null,
   error: null,
   scores: { A: 0, B: 0 },
+  completedRounds: { A: 0, B: 0 },
+  isOvertime: false,
   roundId: null,
   roundEndsAt: null,
   roundPausedRemainingMs: null,
-  passesUsed: 0
+  passesUsed: 0,
+  tabuCooldownUntil: null
 };
+
+const MAX_RECENT_EVENTS = 30;
 
 interface Room {
   code: string;
@@ -56,8 +64,12 @@ interface Room {
   captainBId: string | null;
   settings: RoomSettings;
   winnerTeam: Team | null;
+  completedRounds: { A: number; B: number };
+  isOvertime: boolean;
   lastCardVersion: number;
   historyProfileId: string;
+  recentEvents: MatchEvent[];
+  nextEventId: number;
 }
 
 export type JoinRoomResult =
@@ -67,6 +79,10 @@ export type JoinRoomResult =
 export type MovePlayerResult =
   | { ok: true; room: RoomState }
   | { ok: false; error: MovePlayerError };
+
+export type KickPlayerResult =
+  | { ok: true; room: RoomState; playerId: string }
+  | { ok: false; error: KickPlayerError };
 
 export type CaptainChangeResult =
   | { ok: true; room: RoomState }
@@ -115,13 +131,17 @@ export class RoomManager {
     const room: Room = {
       code,
       hostId: playerId,
-      players: new Map([[playerId, { id: playerId, name, team: null, isConnected: true }]]),
+      players: new Map([[playerId, { id: playerId, name, team: null, isConnected: true, roomWins: 0 }]]),
       captainAId: null,
       captainBId: null,
       settings: { ...DEFAULT_ROOM_SETTINGS, cardSelection: { mode: "GENERAL" } },
       winnerTeam: null,
+      completedRounds: { A: 0, B: 0 },
+      isOvertime: false,
       lastCardVersion: 0,
-      historyProfileId
+      historyProfileId,
+      recentEvents: [],
+      nextEventId: 1
     };
 
     this.rooms.set(code, room);
@@ -148,7 +168,7 @@ export class RoomManager {
       return { ok: false, error: "room-full" };
     }
 
-    room.players.set(playerId, { id: playerId, name, team: null, isConnected: true });
+    room.players.set(playerId, { id: playerId, name, team: null, isConnected: true, roomWins: 0 });
     return { ok: true, room: this.toRoomState(room) };
   }
 
@@ -171,7 +191,7 @@ export class RoomManager {
     if (!room || !player) return null;
     player.isConnected = true;
     if (this.turnEngines.get(roomCode)?.publicState.clueGiverId === playerId) {
-      this.roundEngines.get(roomCode)?.resume();
+      if (this.roundEngines.get(roomCode)?.resume()) this.addEvent(room, "round-resumed", "Tur devam ediyor.");
     }
     return this.toRoomState(room);
   }
@@ -183,7 +203,9 @@ export class RoomManager {
     player.isConnected = false;
     const turns = this.turnEngines.get(roomCode);
     const round = this.roundEngines.get(roomCode);
-    if (round?.isActive && turns?.publicState.clueGiverId === playerId) round.pause();
+    if (round?.isActive && turns?.publicState.clueGiverId === playerId && round.pause()) {
+      this.addEvent(room, "round-paused", "Anlatıcı yeniden bağlanıyor…");
+    }
     return this.toRoomState(room);
   }
 
@@ -218,6 +240,18 @@ export class RoomManager {
       room.captainBId = null;
     }
     return { ok: true, room: this.toRoomState(room) };
+  }
+
+  kickPlayer(roomCode: string, requesterId: string, payload: unknown): KickPlayerResult {
+    const room = this.rooms.get(roomCode);
+    if (!room?.players.has(requesterId)) return { ok: false, error: "not-in-room" };
+    if (room.hostId !== requesterId) return { ok: false, error: "not-host" };
+    if (this.turnEngines.has(roomCode)) return { ok: false, error: "game-already-started" };
+    if (!isExactRecord(payload, ["playerId"]) || typeof payload.playerId !== "string" ||
+        !room.players.has(payload.playerId)) return { ok: false, error: "invalid-player" };
+    if (payload.playerId === requesterId) return { ok: false, error: "cannot-kick-self" };
+    const playerId = payload.playerId;
+    return { ok: true, room: this.removePlayer(roomCode, playerId)!, playerId };
   }
 
   setCaptain(roomCode: string, requesterId: string, payload: unknown): CaptainChangeResult {
@@ -334,14 +368,7 @@ export class RoomManager {
     this.turnEngines.set(roomCode, new TurnEngine(teamAPlayerIds, teamBPlayerIds));
     this.roundEngines.set(roomCode, new RoundEngine(
       () => this.decks.draw(roomCode),
-      () => {
-        const currentRoom = this.rooms.get(roomCode);
-        const turns = this.turnEngines.get(roomCode);
-        if (currentRoom && turns && currentRoom.winnerTeam === null) {
-          turns.advanceTurn();
-          this.statePublisher?.(roomCode, this.toRoomState(currentRoom));
-        }
-      },
+      () => this.completeRound(roomCode),
       this.roundClock,
       room.lastCardVersion
     ));
@@ -368,6 +395,9 @@ export class RoomManager {
     }
     this.turnEngines.delete(roomCode);
     room.winnerTeam = null;
+    room.completedRounds = { A: 0, B: 0 };
+    room.isOvertime = false;
+    room.recentEvents = [];
     if (room.captainAId && room.players.get(room.captainAId)?.team !== "A") {
       room.captainAId = null;
     }
@@ -404,6 +434,7 @@ export class RoomManager {
     }
 
     round.start(room.settings.roundDurationSeconds);
+    this.addEvent(room, "round-start", `Sıra ${turnState.activeTeam === "A" ? "A" : "B"} takımında: ${room.players.get(requesterId)?.name ?? "Anlatıcı"}`);
     return { ok: true, room: this.toRoomState(room) };
   }
 
@@ -442,14 +473,14 @@ export class RoomManager {
     }
 
     const result = round.applyAction(
-      payload.action, payload.cardVersion, activeTeam, room.settings.passLimit, room.settings.targetScore
+      payload.action, payload.cardVersion, activeTeam, room.settings.passLimit
     );
     if (!result.ok) {
       return result;
     }
-    if (result.reachedTarget) {
-      room.winnerTeam = activeTeam;
-    }
+    const actionText = payload.action === "correct" ? `${player.name} doğru bildi` :
+      payload.action === "pass" ? `${player.name} pas geçti` : `${activeTeam} takımı faul verdi`;
+    this.addEvent(room, payload.action, `${actionText} (${result.consumedWord})`);
     return {
       ok: true,
       room: this.toRoomState(room),
@@ -508,12 +539,10 @@ export class RoomManager {
     const turns = this.turnEngines.get(roomCode);
     const round = this.roundEngines.get(roomCode);
     const wasActiveClueGiver = round?.isActive && turns?.publicState.clueGiverId === playerId;
+    const abortedTeam = round?.isActive ? turns?.publicState.activeTeam : null;
     const turnState = room.winnerTeam === null ? turns?.removePlayer(playerId) : undefined;
     if (round?.isActive && (wasActiveClueGiver || turnState?.phase === "unable-to-continue")) {
       round.abort();
-      if (turnState?.phase !== "unable-to-continue") {
-        turns?.advanceTurn();
-      }
     }
 
     if (room.captainAId === playerId) {
@@ -531,7 +560,33 @@ export class RoomManager {
       }
     }
 
+    if (abortedTeam && !round?.isActive) this.completeRound(roomCode, abortedTeam);
+
     return this.toRoomState(room);
+  }
+
+  private completeRound(roomCode: string, teamOverride?: Team): void {
+    const room = this.rooms.get(roomCode);
+    const turns = this.turnEngines.get(roomCode);
+    const round = this.roundEngines.get(roomCode);
+    if (!room || !turns || !round || room.winnerTeam !== null) return;
+    const team = teamOverride ?? turns.publicState.activeTeam;
+    if (!team) return;
+    room.completedRounds[team] += 1;
+    const scores = round.publicState.scores;
+    if (room.completedRounds.A === room.completedRounds.B &&
+        (scores.A >= room.settings.targetScore || scores.B >= room.settings.targetScore)) {
+      if (scores.A !== scores.B) {
+        room.winnerTeam = scores.A > scores.B ? "A" : "B";
+        for (const player of room.players.values()) {
+          if (player.team === room.winnerTeam) player.roomWins += 1;
+        }
+        this.addEvent(room, "match-win", `${room.winnerTeam} takımı maçı kazandı.`);
+      }
+      else room.isOvertime = true;
+    }
+    if (room.winnerTeam === null && turns.publicState.phase === "turn-preparation") turns.advanceTurn();
+    this.statePublisher?.(roomCode, this.toRoomState(room));
   }
 
   private createUniqueCode(): string {
@@ -543,6 +598,11 @@ export class RoomManager {
     } while (this.rooms.has(code));
 
     return code;
+  }
+
+  private addEvent(room: Room, type: MatchEventType, eventText: string): void {
+    room.recentEvents.push({ id: room.nextEventId++, type, text: eventText, occurredAt: this.roundClock.now() });
+    if (room.recentEvents.length > MAX_RECENT_EVENTS) room.recentEvents.shift();
   }
 
   private isValidRoomCode(roomCode: string): boolean {
@@ -561,11 +621,14 @@ export class RoomManager {
       activeTeam: room.winnerTeam !== null ? null : turnState.activeTeam,
       clueGiverId: room.winnerTeam !== null ? null : turnState.clueGiverId,
       scores: roundState?.scores ?? { A: 0, B: 0 },
+      completedRounds: { ...room.completedRounds },
+      isOvertime: room.isOvertime,
       roundId: roundState?.roundId ?? null,
       roundEndsAt: roundState?.roundEndsAt ?? null,
       roundPausedRemainingMs: roundState?.roundPausedRemainingMs ?? null,
-      passesUsed: roundState?.passesUsed ?? 0
-    } : { ...LOBBY_GAME_STATE, scores: { ...LOBBY_GAME_STATE.scores } };
+      passesUsed: roundState?.passesUsed ?? 0,
+      tabuCooldownUntil: roundState?.tabuCooldownUntil ?? null
+    } : { ...LOBBY_GAME_STATE, scores: { ...LOBBY_GAME_STATE.scores }, completedRounds: { A: 0, B: 0 } };
     return {
       code: room.code,
       captainAId: room.captainAId,
@@ -573,6 +636,7 @@ export class RoomManager {
       settings: { ...room.settings, cardSelection: room.settings.cardSelection.mode === "GENERAL"
         ? { mode: "GENERAL" } : { mode: "CUSTOM", categories: [...room.settings.cardSelection.categories] } },
       game,
+      recentEvents: room.recentEvents.map((event) => ({ ...event })),
       players: [...room.players.values()].map((player) => ({
         ...player,
         isHost: player.id === room.hostId

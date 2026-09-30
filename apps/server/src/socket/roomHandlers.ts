@@ -7,6 +7,7 @@ import type {
   GameStartResponse,
   InterServerEvents,
   MovePlayerResponse,
+  KickPlayerResponse,
   RoomActionResponse,
   RoomErrorCode,
   RoomState,
@@ -209,6 +210,32 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager, session
 
       broadcastRoomState(io, rooms, sessions, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies MovePlayerResponse);
+    });
+
+    socket.on("room:kick-player", (payload, acknowledge) => {
+      const session = sessions.current(socket.id);
+      if (!session) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies KickPlayerResponse);
+        return;
+      }
+      const { roomCode, playerId } = session;
+      const result = rooms.kickPlayer(roomCode, playerId, payload);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+      const kickedSocketId = sessions.revoke(roomCode, result.playerId);
+      if (kickedSocketId) {
+        const kickedSocket = io.sockets.sockets.get(kickedSocketId);
+        if (kickedSocket) {
+          kickedSocket.data.roomCode = undefined;
+          kickedSocket.data.playerId = undefined;
+          kickedSocket.leave(roomCode);
+          kickedSocket.emit("room:kicked", { roomCode });
+        }
+      }
+      broadcastRoomState(io, rooms, sessions, roomCode, result.room);
+      respond(acknowledge, { ok: true } satisfies KickPlayerResponse);
     });
 
     socket.on("room:set-captain", (payload, acknowledge) => {

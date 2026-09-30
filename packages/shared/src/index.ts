@@ -44,10 +44,22 @@ export interface PublicGameState {
   clueGiverId: string | null;
   error: GameStateError | null;
   scores: TeamScores;
+  completedRounds: TeamScores;
+  isOvertime: boolean;
   roundId: number | null;
   roundEndsAt: number | null;
   roundPausedRemainingMs: number | null;
   passesUsed: number;
+  tabuCooldownUntil: number | null;
+}
+
+export type MatchEventType = "round-start" | "correct" | "pass" | "tabu" | "round-paused" | "round-resumed" | "match-win";
+
+export interface MatchEvent {
+  id: number;
+  type: MatchEventType;
+  text: string;
+  occurredAt: number;
 }
 
 export interface PersonalGameView {
@@ -62,6 +74,7 @@ export interface Player {
   isHost: boolean;
   isConnected: boolean;
   team: Team | null;
+  roomWins: number;
 }
 
 export interface RoomState {
@@ -71,6 +84,7 @@ export interface RoomState {
   captainBId: string | null;
   settings: RoomSettings;
   game: PublicGameState;
+  recentEvents: MatchEvent[];
 }
 
 export interface CreateRoomPayload {
@@ -92,6 +106,14 @@ export interface MovePlayerPayload {
   playerId: string;
   team: Team | null;
 }
+
+export interface KickPlayerPayload {
+  playerId: string;
+}
+
+export type KickPlayerError = "not-in-room" | "not-host" | "game-already-started" |
+  "invalid-player" | "cannot-kick-self" | "server-unavailable" | "request-timeout";
+export type KickPlayerResponse = { ok: true } | { ok: false; error: KickPlayerError };
 
 export interface SetCaptainPayload {
   team: Team;
@@ -205,6 +227,7 @@ export type CardActionError =
   | "not-authorized"
   | "pass-limit-reached"
   | "stale-card"
+  | "tabu-cooldown"
   | "server-unavailable"
   | "request-timeout";
 
@@ -228,6 +251,10 @@ export interface ClientToServerEvents {
     payload: MovePlayerPayload,
     acknowledge: (response: MovePlayerResponse) => void
   ) => void;
+  "room:kick-player": (
+    payload: KickPlayerPayload,
+    acknowledge: (response: KickPlayerResponse) => void
+  ) => void;
   "room:set-captain": (
     payload: SetCaptainPayload,
     acknowledge: (response: CaptainActionResponse) => void
@@ -248,6 +275,7 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   "room:state": (room: RoomState) => void;
   "room:session-moved": () => void;
+  "room:kicked": (payload: { roomCode: string }) => void;
   "game:view": (view: PersonalGameView) => void;
   "game:card-result": (result: CardResult) => void;
 }

@@ -36,8 +36,16 @@ function correctToWin(rooms: RoomManager, code: string, clueGiverId: string, dra
   return lastVersion;
 }
 
+function finishPair(rooms: RoomManager, clock: FakeRoundClock, code: string): void {
+  clock.advance(30_000);
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 1, B: 0 });
+  assert.equal(rooms.startRound(code, "b1").ok, true);
+  clock.advance(30_000);
+  assert.equal(rooms.getRoomState(code)?.game.winnerTeam, "A");
+}
+
 test("only the current host can return a finished match to the lobby", () => {
-  const { rooms, code } = fixture();
+  const { rooms, code, clock } = fixture();
   assert.deepEqual(rooms.returnToLobby(code, "outsider"), { ok: false, error: "not-in-room" });
   assert.deepEqual(rooms.returnToLobby(code, "a1"), { ok: false, error: "game-not-over" });
   assert.equal(rooms.startGame(code, "a1").ok, true);
@@ -45,6 +53,8 @@ test("only the current host can return a finished match to the lobby", () => {
   assert.equal(rooms.startRound(code, "a1").ok, true);
   assert.deepEqual(rooms.returnToLobby(code, "a1"), { ok: false, error: "game-not-over" });
   correctToWin(rooms, code, "a1");
+  assert.deepEqual(rooms.returnToLobby(code, "a1"), { ok: false, error: "game-not-over" });
+  finishPair(rooms, clock, code);
   assert.deepEqual(rooms.returnToLobby(code, "b1"), { ok: false, error: "not-host" });
   const reset = rooms.returnToLobby(code, "a1");
   assert.equal(reset.ok, true);
@@ -52,6 +62,8 @@ test("only the current host can return a finished match to the lobby", () => {
   assert.equal(reset.room.game.phase, "lobby");
   assert.equal(reset.room.game.winnerTeam, null);
   assert.deepEqual(reset.room.game.scores, { A: 0, B: 0 });
+  assert.deepEqual(reset.room.game.completedRounds, { A: 0, B: 0 });
+  assert.equal(reset.room.game.isOvertime, false);
   assert.equal(reset.room.game.activeTeam, null);
   assert.equal(reset.room.game.clueGiverId, null);
   assert.equal(reset.room.game.error, null);
@@ -93,6 +105,10 @@ test("return keeps room members and settings, resets rotation, and rejects old c
     assert.equal(rooms.cardAction(code, "a2", { action: "correct", cardVersion: winningVersion }).ok, true);
   }
   assert.equal(firstMatchCards.size, 15);
+  assert.equal(clock.activeTimerCount, 1);
+  clock.advance(30_000);
+  assert.equal(rooms.startRound(code, "b1").ok, true);
+  clock.advance(30_000);
   assert.equal(clock.activeTimerCount, 0);
   const reset = rooms.returnToLobby(code, "a1");
   assert.equal(reset.ok, true);
@@ -146,10 +162,11 @@ test("return keeps room members and settings, resets rotation, and rejects old c
 });
 
 test("new host can return to lobby after winner-screen host transfer and prepare another match", () => {
-  const { rooms, code } = fixture();
+  const { rooms, code, clock } = fixture();
   assert.equal(rooms.startGame(code, "a1").ok, true);
   assert.equal(rooms.startRound(code, "a1").ok, true);
   correctToWin(rooms, code, "a1");
+  finishPair(rooms, clock, code);
   assert.deepEqual(rooms.joinRoom("late", "Late", code), { ok: false, error: "game-already-started" });
   const afterDisconnect = rooms.removePlayer(code, "a1");
   assert.equal(afterDisconnect?.players.find((player) => player.id === "a2")?.isHost, true);
@@ -181,11 +198,12 @@ test("new host can return to lobby after winner-screen host transfer and prepare
 });
 
 test("a disconnected captain is cleared before the new host prepares a rematch", () => {
-  const { rooms, code } = fixture();
+  const { rooms, code, clock } = fixture();
   assert.equal(rooms.setCaptain(code, "a1", { team: "A", captainId: "a1" }).ok, true);
   assert.equal(rooms.startGame(code, "a1").ok, true);
   assert.equal(rooms.startRound(code, "a1").ok, true);
   correctToWin(rooms, code, "a1");
+  finishPair(rooms, clock, code);
   assert.equal(rooms.removePlayer(code, "a1")?.captainAId, null);
   const reset = rooms.returnToLobby(code, "a2");
   assert.equal(reset.ok, true);
@@ -198,7 +216,7 @@ test("a disconnected captain is cleared before the new host prepares a rematch",
 });
 
 test("a room deck preserves card progress across consecutive rematches", () => {
-  const { rooms, code } = fixture();
+  const { rooms, code, clock } = fixture();
   const seen = new Set<string>();
   let previousFinalId = "";
   for (let match = 1; match <= 5; match += 1) {
@@ -213,6 +231,7 @@ test("a room deck preserves card progress across consecutive rematches", () => {
       previousFinalId = cardId;
       assert.equal(rooms.cardAction(code, "a1", { action: "correct", cardVersion: view.cardVersion }).ok, true);
     }
+    finishPair(rooms, clock, code);
     assert.equal(seen.size, match * 10);
     const reset = rooms.returnToLobby(code, "a1");
     assert.equal(reset.ok, true);

@@ -148,8 +148,8 @@ test("pass limit zero prevents passing", () => {
   });
 });
 
-test("clue giver and opposing captain may call Tabu; other players cannot", () => {
-  const { rooms, code } = startedRound();
+test("clue giver and opposing captain may call Tabu after cooldown; other players cannot", () => {
+  const { rooms, code, clock } = startedRound();
   let version = rooms.getPersonalGameView(code, "a1")!.cardVersion!;
   assert.deepEqual(rooms.cardAction(code, "a2", { action: "tabu", cardVersion: version }), {
     ok: false, error: "not-authorized"
@@ -164,6 +164,10 @@ test("clue giver and opposing captain may call Tabu; other players cannot", () =
     assert.equal(selfTabu.cardResult.action, "tabu");
   }
   version = rooms.getPersonalGameView(code, "b1")!.cardVersion!;
+  assert.deepEqual(rooms.cardAction(code, "b1", { action: "tabu", cardVersion: version }), {
+    ok: false, error: "tabu-cooldown"
+  });
+  clock.advance(1200);
   const captainTabu = rooms.cardAction(code, "b1", { action: "tabu", cardVersion: version });
   assert.equal(captainTabu.ok, true);
   if (captainTabu.ok) assert.equal(captainTabu.room.game.scores.A, -2);

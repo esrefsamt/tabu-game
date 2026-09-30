@@ -76,4 +76,15 @@ export class PlayerSessionManager {
     if (session.removalTimer) this.clock.clearTimeout(session.removalTimer);
     return { roomCode: session.roomCode, playerId: session.playerId };
   }
+
+  revoke(roomCode: string, playerId: string): string | null {
+    for (const session of this.byToken.values()) {
+      if (session.roomCode !== roomCode || session.playerId !== playerId) continue;
+      this.byToken.delete(session.token);
+      if (session.removalTimer) this.clock.clearTimeout(session.removalTimer);
+      if (session.socketId) this.bySocket.delete(session.socketId);
+      return session.socketId;
+    }
+    return null;
+  }
 }

@@ -33,7 +33,8 @@ function HomePage() {
   const [roomCode, setRoomCode] = useState(searchParams.get("room")?.toUpperCase() ?? "");
   const [error, setError] = useState<string | null>(
     searchParams.has("sessionMoved") ? "Oturum başka sekmede açıldı. Devam etmek için tekrar katıl."
-      : searchParams.has("sessionExpired") ? "Oturum süresi doldu. Odaya tekrar katıl." : null
+      : searchParams.has("sessionExpired") ? "Oturum süresi doldu. Odaya tekrar katıl."
+        : searchParams.has("kicked") ? "Host tarafından odadan çıkarıldın." : null
   );
   const [pending, setPending] = useState(false);
 

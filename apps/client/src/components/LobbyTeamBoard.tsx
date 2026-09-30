@@ -28,6 +28,7 @@ function PlayerFace({ player, captainId }: { player: Player; captainId: string |
     <>
       <span className="player-avatar" aria-hidden="true">{player.name.trim().charAt(0).toLocaleUpperCase("tr-TR")}</span>
       <span className="player-chip-name">{player.name}</span>
+      <span className="room-wins" aria-label={`${player.roomWins} oda galibiyeti`}>🏆 {player.roomWins}</span>
       {!player.isConnected && <span className="reconnect-badge">Bağlantı bekleniyor…</span>}
       <span className="player-badges">
         {player.isHost && <span className="host-badge">Host</span>}
@@ -37,10 +38,12 @@ function PlayerFace({ player, captainId }: { player: Player; captainId: string |
   );
 }
 
-function PlayerChip({ player, captainId, draggable }: {
+function PlayerChip({ player, captainId, draggable, canKick, onKick }: {
   player: Player;
   captainId: string | null;
   draggable: boolean;
+  canKick: boolean;
+  onKick: (playerId: string) => void;
 }) {
   const { attributes, listeners, isDragging, setNodeRef } = useDraggable({
     id: player.id,
@@ -48,7 +51,7 @@ function PlayerChip({ player, captainId, draggable }: {
   });
 
   return (
-    <li>
+    <li className="player-chip-item">
       {draggable ? (
         <button
           {...attributes}
@@ -66,6 +69,10 @@ function PlayerChip({ player, captainId, draggable }: {
           <PlayerFace player={player} captainId={captainId} />
         </div>
       )}
+      {canKick && (
+        <button className="player-kick-button" type="button" aria-label={`${player.name} oyuncusunu odadan at`}
+          onClick={() => onKick(player.id)}>At</button>
+      )}
     </li>
   );
 }
@@ -75,13 +82,17 @@ function PlayerZone({
   players,
   captainId,
   isHost,
-  movePending
+  movePending,
+  selfPlayerId,
+  onKick
 }: {
   team: Team | null;
   players: Player[];
   captainId: string | null;
   isHost: boolean;
   movePending: boolean;
+  selfPlayerId: string | null;
+  onKick: (playerId: string) => void;
 }) {
   const id = team ?? "unassigned";
   const { isOver, setNodeRef } = useDroppable({ id: ZONE_IDS[id] });
@@ -102,7 +113,8 @@ function PlayerZone({
       {players.length > 0 ? (
         <ul className="player-chip-list">
           {players.map((player) => (
-            <PlayerChip key={player.id} player={player} captainId={captainId} draggable={isHost && !movePending} />
+            <PlayerChip key={player.id} player={player} captainId={captainId}
+              draggable={isHost && !movePending} canKick={isHost && player.id !== selfPlayerId} onKick={onKick} />
           ))}
         </ul>
       ) : (
@@ -112,11 +124,13 @@ function PlayerZone({
   );
 }
 
-export default function LobbyTeamBoard({ room, isHost, movePending, onMove }: {
+export default function LobbyTeamBoard({ room, isHost, movePending, selfPlayerId, onMove, onKick }: {
   room: RoomState;
   isHost: boolean;
   movePending: boolean;
+  selfPlayerId: string | null;
   onMove: (payload: MovePlayerPayload) => Promise<void>;
+  onKick: (playerId: string) => void;
 }) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const sensors = useSensors(
@@ -148,10 +162,10 @@ export default function LobbyTeamBoard({ room, isHost, movePending, onMove }: {
       sensors={sensors}
     >
       <div className="lobby-board">
-        <PlayerZone team={null} players={room.players.filter((player) => player.team === null)} captainId={null} isHost={isHost} movePending={movePending} />
+        <PlayerZone team={null} players={room.players.filter((player) => player.team === null)} captainId={null} isHost={isHost} movePending={movePending} selfPlayerId={selfPlayerId} onKick={onKick} />
         <div className="team-grid">
-          <PlayerZone team="A" players={room.players.filter((player) => player.team === "A")} captainId={room.captainAId} isHost={isHost} movePending={movePending} />
-          <PlayerZone team="B" players={room.players.filter((player) => player.team === "B")} captainId={room.captainBId} isHost={isHost} movePending={movePending} />
+          <PlayerZone team="A" players={room.players.filter((player) => player.team === "A")} captainId={room.captainAId} isHost={isHost} movePending={movePending} selfPlayerId={selfPlayerId} onKick={onKick} />
+          <PlayerZone team="B" players={room.players.filter((player) => player.team === "B")} captainId={room.captainBId} isHost={isHost} movePending={movePending} selfPlayerId={selfPlayerId} onKick={onKick} />
         </div>
       </div>
       <DragOverlay dropAnimation={null}>

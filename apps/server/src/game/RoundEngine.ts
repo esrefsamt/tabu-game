@@ -15,8 +15,10 @@ export const systemRoundClock: RoundClock = {
 };
 
 export type RoundActionResult =
-  | { ok: true; consumedWord: string; reachedTarget: boolean }
-  | { ok: false; error: "round-not-active" | "stale-card" | "pass-limit-reached" };
+  | { ok: true; consumedWord: string }
+  | { ok: false; error: "round-not-active" | "stale-card" | "pass-limit-reached" | "tabu-cooldown" };
+
+const TABU_COOLDOWN_MS = 1200;
 
 export class RoundEngine {
   private readonly scores: TeamScores = { A: 0, B: 0 };
@@ -28,6 +30,7 @@ export class RoundEngine {
   private roundEndsAtValue: number | null = null;
   private pausedRemainingMs: number | null = null;
   private passesUsedValue = 0;
+  private tabuCooldownUntilValue: number | null = null;
   private timer: TimerHandle | null = null;
   private timerGeneration = 0;
 
@@ -66,13 +69,15 @@ export class RoundEngine {
     roundEndsAt: number | null;
     roundPausedRemainingMs: number | null;
     passesUsed: number;
+    tabuCooldownUntil: number | null;
   } {
     return {
       scores: { ...this.scores },
       roundId: this.roundIdValue,
       roundEndsAt: this.roundEndsAtValue,
       roundPausedRemainingMs: this.pausedRemainingMs,
-      passesUsed: this.passesUsedValue
+      passesUsed: this.passesUsedValue,
+      tabuCooldownUntil: this.tabuCooldownUntilValue
     };
   }
 
@@ -121,8 +126,7 @@ export class RoundEngine {
     action: CardAction,
     cardVersion: number,
     activeTeam: Team,
-    passLimit: number,
-    targetScore: number
+    passLimit: number
   ): RoundActionResult {
     if (!this.isActive || this.isPaused || !this.currentCardValue) {
       return { ok: false, error: "round-not-active" };
@@ -132,6 +136,9 @@ export class RoundEngine {
     }
     if (cardVersion !== this.cardVersionValue) {
       return { ok: false, error: "stale-card" };
+    }
+    if (action === "tabu" && this.tabuCooldownUntilValue !== null && this.clock.now() < this.tabuCooldownUntilValue) {
+      return { ok: false, error: "tabu-cooldown" };
     }
     if (action === "pass" && this.passesUsedValue >= passLimit) {
       return { ok: false, error: "pass-limit-reached" };
@@ -145,16 +152,12 @@ export class RoundEngine {
       this.passesUsedValue += 1;
     } else {
       this.scores[activeTeam] -= 1;
-    }
-
-    if (this.scores[activeTeam] >= targetScore) {
-      this.clearCurrentRound();
-      return { ok: true, consumedWord, reachedTarget: true };
+      this.tabuCooldownUntilValue = this.clock.now() + TABU_COOLDOWN_MS;
     }
 
     this.currentCardValue = this.drawNextCard();
     this.cardVersionValue += 1;
-    return { ok: true, consumedWord, reachedTarget: false };
+    return { ok: true, consumedWord };
   }
 
   expireIfDue(): boolean {

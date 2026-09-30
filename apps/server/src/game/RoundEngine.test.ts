@@ -36,11 +36,11 @@ test("Correct scores once, replaces the card, and rejects a double or stale acti
   const { round } = roundFixture();
   round.start(30);
   const firstVersion = round.cardVersion!;
-  assert.deepEqual(round.applyAction("correct", firstVersion, "A", 3, 30), { ok: true, consumedWord: "Elma", reachedTarget: false });
+  assert.deepEqual(round.applyAction("correct", firstVersion, "A", 3), { ok: true, consumedWord: "Elma" });
   assert.equal(round.publicState.scores.A, 1);
   assert.equal(round.currentCard?.id, "b");
-  assert.deepEqual(round.applyAction("correct", firstVersion, "A", 3, 30), { ok: false, error: "stale-card" });
-  assert.deepEqual(round.applyAction("tabu", firstVersion, "A", 3, 30), { ok: false, error: "stale-card" });
+  assert.deepEqual(round.applyAction("correct", firstVersion, "A", 3), { ok: false, error: "stale-card" });
+  assert.deepEqual(round.applyAction("tabu", firstVersion, "A", 3), { ok: false, error: "stale-card" });
   assert.equal(round.publicState.scores.A, 1);
   round.dispose();
 });
@@ -48,11 +48,11 @@ test("Correct scores once, replaces the card, and rejects a double or stale acti
 test("Pass changes the card and pass count without changing score", () => {
   const { round } = roundFixture();
   round.start(30);
-  assert.deepEqual(round.applyAction("pass", round.cardVersion!, "A", 1, 30), { ok: true, consumedWord: "Elma", reachedTarget: false });
+  assert.deepEqual(round.applyAction("pass", round.cardVersion!, "A", 1), { ok: true, consumedWord: "Elma" });
   assert.equal(round.publicState.passesUsed, 1);
   assert.deepEqual(round.publicState.scores, { A: 0, B: 0 });
   assert.equal(round.currentCard?.id, "b");
-  assert.deepEqual(round.applyAction("pass", round.cardVersion!, "A", 1, 30), { ok: false, error: "pass-limit-reached" });
+  assert.deepEqual(round.applyAction("pass", round.cardVersion!, "A", 1), { ok: false, error: "pass-limit-reached" });
   assert.equal(round.currentCard?.id, "b");
   round.dispose();
 });
@@ -60,7 +60,7 @@ test("Pass changes the card and pass count without changing score", () => {
 test("a zero pass limit rejects Pass without consuming the card", () => {
   const { round } = roundFixture();
   round.start(30);
-  assert.deepEqual(round.applyAction("pass", round.cardVersion!, "A", 0, 30), { ok: false, error: "pass-limit-reached" });
+  assert.deepEqual(round.applyAction("pass", round.cardVersion!, "A", 0), { ok: false, error: "pass-limit-reached" });
   assert.equal(round.currentCard?.id, "a");
   round.dispose();
 });
@@ -68,7 +68,7 @@ test("a zero pass limit rejects Pass without consuming the card", () => {
 test("Tabu subtracts a point and replaces the card", () => {
   const { round } = roundFixture();
   round.start(30);
-  assert.deepEqual(round.applyAction("tabu", round.cardVersion!, "A", 3, 30), { ok: true, consumedWord: "Elma", reachedTarget: false });
+  assert.deepEqual(round.applyAction("tabu", round.cardVersion!, "A", 3), { ok: true, consumedWord: "Elma" });
   assert.equal(round.publicState.scores.A, -1);
   assert.equal(round.currentCard?.id, "b");
   round.dispose();
@@ -86,14 +86,14 @@ test("timer expiration happens once, clears the card, and leaves the next round 
   assert.equal(clock.activeTimerCount, 0);
   clock.advance(30_000);
   assert.equal(expiredCount(), 1);
-  assert.deepEqual(round.applyAction("correct", 1, "A", 3, 30), { ok: false, error: "round-not-active" });
+  assert.deepEqual(round.applyAction("correct", 1, "A", 3), { ok: false, error: "round-not-active" });
 });
 
 test("an action at the deadline expires the round before it can score", () => {
   const { round, clock, expiredCount } = roundFixture();
   round.start(30);
   clock.elapseWithoutRunning(30_000);
-  assert.deepEqual(round.applyAction("correct", 1, "A", 3, 30), { ok: false, error: "round-not-active" });
+  assert.deepEqual(round.applyAction("correct", 1, "A", 3), { ok: false, error: "round-not-active" });
   assert.equal(round.publicState.scores.A, 0);
   assert.equal(expiredCount(), 1);
   assert.equal(clock.activeTimerCount, 0);
@@ -102,8 +102,8 @@ test("an action at the deadline expires the round before it can score", () => {
 test("pause freezes the authoritative remaining time, card, version, score, and passes", () => {
   const { round, clock, expiredCount, drawCount } = roundFixture();
   round.start(60);
-  round.applyAction("correct", round.cardVersion!, "A", 3, 30);
-  round.applyAction("pass", round.cardVersion!, "A", 3, 30);
+  round.applyAction("correct", round.cardVersion!, "A", 3);
+  round.applyAction("pass", round.cardVersion!, "A", 3);
   const card = round.currentCard;
   const version = round.cardVersion;
   const roundId = round.publicState.roundId;
@@ -120,7 +120,7 @@ test("pause freezes the authoritative remaining time, card, version, score, and 
   assert.deepEqual(round.publicState.scores, { A: 1, B: 0 });
   assert.equal(round.publicState.passesUsed, 1);
   for (const action of ["correct", "pass", "tabu"] as const) {
-    assert.deepEqual(round.applyAction(action, version!, "A", 3, 30), { ok: false, error: "round-not-active" });
+    assert.deepEqual(round.applyAction(action, version!, "A", 3), { ok: false, error: "round-not-active" });
   }
   clock.advance(3_000);
   assert.equal(expiredCount(), 0);
@@ -154,8 +154,8 @@ test("a round already due expires instead of pausing", () => {
 test("scores persist and the pass count resets between rounds", () => {
   const { round, clock } = roundFixture();
   round.start(30);
-  round.applyAction("correct", round.cardVersion!, "A", 3, 30);
-  round.applyAction("pass", round.cardVersion!, "A", 3, 30);
+  round.applyAction("correct", round.cardVersion!, "A", 3);
+  round.applyAction("pass", round.cardVersion!, "A", 3);
   assert.equal(round.publicState.passesUsed, 1);
   clock.advance(30_000);
   assert.equal(round.publicState.passesUsed, 0);
@@ -176,22 +176,24 @@ test("disposing an active round clears its timer and card", () => {
   assert.equal(round.currentCard, null);
 });
 
-test("a winning Correct clears the card and timer without drawing a replacement", () => {
+test("crossing the target keeps the round and scoring active until expiry", () => {
   const { round, clock, expiredCount, drawCount } = roundFixture();
   round.start(30);
-  assert.deepEqual(round.applyAction("correct", round.cardVersion!, "A", 3, 1), {
-    ok: true, consumedWord: "Elma", reachedTarget: true
+  assert.deepEqual(round.applyAction("correct", round.cardVersion!, "A", 3), {
+    ok: true, consumedWord: "Elma"
   });
   assert.equal(round.publicState.scores.A, 1);
-  assert.equal(round.currentCard, null);
-  assert.equal(drawCount(), 1);
-  assert.equal(round.cardVersion, null);
-  assert.equal(round.publicState.roundId, null);
-  assert.equal(round.publicState.roundEndsAt, null);
-  assert.equal(clock.activeTimerCount, 0);
-  assert.deepEqual(round.applyAction("correct", 1, "A", 3, 1), { ok: false, error: "round-not-active" });
+  assert.equal(round.currentCard?.id, "b");
+  assert.equal(drawCount(), 2);
+  assert.equal(round.cardVersion, 2);
+  assert.equal(round.publicState.roundId, 1);
+  assert.equal(clock.activeTimerCount, 1);
+  assert.deepEqual(round.applyAction("correct", 1, "A", 3), { ok: false, error: "stale-card" });
+  assert.deepEqual(round.applyAction("correct", 2, "A", 3), { ok: true, consumedWord: "Tren" });
+  assert.equal(round.publicState.scores.A, 2);
   clock.advance(30_000);
-  assert.equal(expiredCount(), 0);
+  assert.equal(expiredCount(), 1);
+  assert.equal(round.currentCard, null);
   round.dispose();
 });
 
@@ -204,7 +206,7 @@ test("a new round engine can continue card versions without accepting a previous
   const newRound = new RoundEngine(() => cards[1]!, () => {}, clock, oldRound.lastCardVersion);
   newRound.start(30);
   assert.ok(newRound.cardVersion! > oldVersion);
-  assert.deepEqual(newRound.applyAction("correct", oldVersion, "A", 3, 10), {
+  assert.deepEqual(newRound.applyAction("correct", oldVersion, "A", 3), {
     ok: false, error: "stale-card"
   });
   newRound.dispose();

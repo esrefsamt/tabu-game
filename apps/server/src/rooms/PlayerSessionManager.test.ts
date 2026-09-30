@@ -361,6 +361,9 @@ test("reconnecting players receive authorized cards and a paused clue giver resu
     assert.ok(version);
     assert.deepEqual(await b1Third.emitWithAck("game:card-action", { action: "correct", cardVersion: version }), { ok: true });
   }
+  assert.equal(rooms.getRoomState(code)?.game.phase, "round-active");
+  assert.deepEqual(rooms.getRoomState(code)?.game.completedRounds, { A: 1, B: 0 });
+  roundClock.advance(60_000);
   assert.equal(rooms.getRoomState(code)?.game.phase, "game-over");
   assert.equal(rooms.getRoomState(code)?.game.winnerTeam, "B");
   a1Again.disconnect();
@@ -400,6 +403,65 @@ test("a reconnecting player occupies a full-room slot until grace expires", asyn
   const joined = await newPlayer.emitWithAck("room:join", { name: "Extra", roomCode: created.room.code });
   assert.equal(joined.ok, true);
   assert.equal(rooms.getRoomState(created.room.code)?.players.length, 10);
+});
+
+test("host kick invalidates a live session, removes authority, and allows a fresh manual join", async (context) => {
+  const { player, rooms } = await fixture(context);
+  const host = await player();
+  const guest = await player();
+  const observer = await player();
+  const created = await host.emitWithAck("room:create", { name: "Host", historyProfileId: PROFILE });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const code = created.room.code;
+  const joined = await guest.emitWithAck("room:join", { name: "Guest", roomCode: code });
+  const observed = await observer.emitWithAck("room:join", { name: "Observer", roomCode: code });
+  assert.equal(joined.ok && observed.ok, true);
+  if (!joined.ok || !observed.ok) return;
+  assert.deepEqual(await host.emitWithAck("room:move-player", { playerId: joined.playerId, team: "A" }), { ok: true });
+  assert.deepEqual(await host.emitWithAck("room:set-captain", { team: "A", captainId: joined.playerId }), { ok: true });
+  const kickedNotice = new Promise<{ roomCode: string }>((resolve) => guest.once("room:kicked", resolve));
+  const observerStates: RoomState[] = [];
+  observer.on("room:state", (state) => observerStates.push(state));
+  assert.deepEqual(await guest.emitWithAck("room:kick-player", { playerId: observed.playerId }), { ok: false, error: "not-host" });
+  assert.deepEqual(await host.emitWithAck("room:kick-player", { playerId: joined.playerId }), { ok: true });
+  assert.deepEqual(await kickedNotice, { roomCode: code });
+  await waitFor(() => observerStates.at(-1)?.players.every((member) => member.id !== joined.playerId) === true);
+  assert.equal(rooms.getRoomState(code)?.captainAId, null);
+  assert.deepEqual(await guest.emitWithAck("room:move-player", { playerId: observed.playerId, team: "B" }),
+    { ok: false, error: "not-in-room" });
+  assert.deepEqual(await guest.emitWithAck("game:start"), { ok: false, error: "not-in-room" });
+  const stale = await player();
+  assert.deepEqual(await stale.emitWithAck("room:resume", { roomCode: code, sessionToken: joined.sessionToken }),
+    { ok: false, error: "invalid-session" });
+  const fresh = await guest.emitWithAck("room:join", { name: "Guest", roomCode: code });
+  assert.equal(fresh.ok, true);
+  if (!fresh.ok) return;
+  assert.notEqual(fresh.playerId, joined.playerId);
+  assert.notEqual(fresh.sessionToken, joined.sessionToken);
+  assert.equal(fresh.room.players.find((member) => member.id === fresh.playerId)?.team, null);
+  assert.equal(JSON.stringify(fresh.room).includes("historyProfileId"), false);
+});
+
+test("kicking a disconnected player bypasses grace and cancels the old resume token", async (context) => {
+  const { player, rooms, sessionClock } = await fixture(context);
+  const host = await player();
+  const guest = await player();
+  const created = await host.emitWithAck("room:create", { name: "Host", historyProfileId: PROFILE });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const joined = await guest.emitWithAck("room:join", { name: "Guest", roomCode: created.room.code });
+  assert.equal(joined.ok, true);
+  if (!joined.ok) return;
+  guest.disconnect();
+  await waitFor(() => rooms.getRoomState(created.room.code)?.players.find((member) => member.id === joined.playerId)?.isConnected === false);
+  assert.deepEqual(await host.emitWithAck("room:kick-player", { playerId: joined.playerId }), { ok: true });
+  assert.equal(rooms.getRoomState(created.room.code)?.players.length, 1);
+  sessionClock.advance(RECONNECT_GRACE_MS);
+  assert.equal(rooms.getRoomState(created.room.code)?.players.length, 1);
+  const resumed = await player();
+  assert.deepEqual(await resumed.emitWithAck("room:resume", { roomCode: created.room.code, sessionToken: joined.sessionToken }),
+    { ok: false, error: "invalid-session" });
 });
 
 test("grace expiry aborts a paused round once and explicit leave aborts immediately", async (context) => {

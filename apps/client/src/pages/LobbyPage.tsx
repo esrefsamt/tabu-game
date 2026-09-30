@@ -5,6 +5,7 @@ import type {
   CardActionError,
   CaptainActionError,
   GameStartError,
+  KickPlayerError,
   MovePlayerError,
   MovePlayerPayload,
   PassLimit,
@@ -19,7 +20,7 @@ import type {
   UpdateRoomSettingsPayload
 } from "@tabu/shared";
 import {
-  getCurrentPlayerId, hasRoomSession, leaveRoom, movePlayer, resumeRoom, returnToLobby,
+  getCurrentPlayerId, getLastKickedRoomCode, hasRoomSession, kickPlayer, leaveRoom, movePlayer, resumeRoom, returnToLobby,
   sendCardAction, setCaptain, socket, startGame, startRound,
   updateRoomSettings, usePersonalGameView, useRoomState
 } from "../lib/socket";
@@ -48,6 +49,18 @@ function moveErrorMessage(error: MovePlayerError): string {
       return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
     case "request-timeout":
       return "Sunucudan yanıt alınamadı. Lütfen tekrar dene.";
+  }
+}
+
+function kickErrorMessage(error: KickPlayerError): string {
+  switch (error) {
+    case "not-in-room": return "Oda bağlantısı bulunamadı.";
+    case "not-host": return "Oyuncuyu yalnızca oda sahibi çıkarabilir.";
+    case "game-already-started": return "Oyun sırasında oyuncu çıkarılamaz.";
+    case "invalid-player": return "Oyuncu bu odada bulunamadı.";
+    case "cannot-kick-self": return "Kendini odadan atamazsın.";
+    case "server-unavailable": return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
+    case "request-timeout": return "Sunucudan yanıt alınamadı. Lütfen tekrar dene.";
   }
 }
 
@@ -139,13 +152,15 @@ function cardActionErrorMessage(error: CardActionError): string {
     case "not-authorized": return "Bu işlem için yetkin yok.";
     case "pass-limit-reached": return "Pas hakkın kalmadı.";
     case "stale-card": return "Kart değişti. Güncel kartı kullan.";
+    case "tabu-cooldown": return "Faul için kısa bir süre bekle.";
     case "server-unavailable": return "Sunucuya bağlanılamadı. Lütfen tekrar dene.";
     case "request-timeout": return "Sunucudan yanıt alınamadı. Lütfen tekrar dene.";
   }
 }
 
-function ScoreBoard({ scores, activeTeam, targetScore }: {
+function ScoreBoard({ scores, completedRounds, activeTeam, targetScore }: {
   scores: RoomState["game"]["scores"];
+  completedRounds: RoomState["game"]["completedRounds"];
   activeTeam: Team | null;
   targetScore: TargetScore;
 }) {
@@ -153,14 +168,32 @@ function ScoreBoard({ scores, activeTeam, targetScore }: {
     <div className="score-area">
       <div className="score-board" aria-label="Takım puanları">
         <div className={`score-team score-team-a${activeTeam === "A" ? " score-team-active" : ""}`}>
-          <span>TAKIM A</span><strong>{scores.A}</strong>
+          <span>TAKIM A</span><strong>{scores.A}</strong><small>{completedRounds.A} tur</small>
         </div>
         <div className={`score-team score-team-b${activeTeam === "B" ? " score-team-active" : ""}`}>
-          <span>TAKIM B</span><strong>{scores.B}</strong>
+          <span>TAKIM B</span><strong>{scores.B}</strong><small>{completedRounds.B} tur</small>
         </div>
       </div>
       <p className="target-score-label">Hedef puan: <strong>{targetScore}</strong></p>
     </div>
+  );
+}
+
+function MatchHistory({ events }: { events: RoomState["recentEvents"] }) {
+  return (
+    <section className="match-history" aria-label="Son Hareketler">
+      <h3>Son Hareketler</h3>
+      {events.length === 0 ? <p className="match-history-empty">Henüz hareket yok.</p> : (
+        <ol className="match-history-list">
+          {[...events].reverse().map((event) => (
+            <li className={`match-history-entry history-${event.type}`} key={event.id}>
+              <span className="history-mark" aria-hidden="true" />
+              <span>{event.text}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -190,11 +223,12 @@ function WinnerScreen({ room }: { room: RoomState }) {
           <span className="winner-trophy" aria-hidden="true">🏆</span>
           <p className="turn-kicker">TEBRİKLER!</p>
           <h2 id="winner-title">TAKIM {winner} KAZANDI!</h2>
-          <p>Hedef puana ilk ulaşan takım kazandı.</p>
+          <p>Eşit sayıda tur sonunda en yüksek puanı alan takım kazandı.</p>
         </div>
-        <ScoreBoard scores={room.game.scores} activeTeam={winner} targetScore={room.settings.targetScore} />
+        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={winner} targetScore={room.settings.targetScore} />
         <p className="winner-final-label">FİNAL SKORU</p>
         <p className="winner-final-score">{room.game.scores.A} <span>–</span> {room.game.scores.B}</p>
+        <MatchHistory events={room.recentEvents} />
         <div className="rematch-action">
           {isHost ? (
             <>
@@ -231,6 +265,7 @@ function TeamPlayerList({
         <li className="player-row" key={player.id}>
           <span className="game-player-avatar" aria-hidden="true">{player.name.trim().charAt(0).toLocaleUpperCase("tr-TR")}</span>
           <span className="player-name">{player.name}</span>
+          <span className="room-wins" aria-label={`${player.roomWins} oda galibiyeti`}>🏆 {player.roomWins}</span>
           <span className="player-badges">
             {player.isHost && <span className="host-badge" aria-label="Oda sahibi">★ Host</span>}
             {player.id === captainId && <span className="captain-badge">Kaptan</span>}
@@ -267,7 +302,8 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
           <h1 className="brand-logo brand-logo-game" id="game-screen-title">TABU<span>!</span></h1>
         </header>
 
-        <ScoreBoard scores={room.game.scores} activeTeam={room.game.activeTeam} targetScore={room.settings.targetScore} />
+        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={room.game.activeTeam} targetScore={room.settings.targetScore} />
+        {room.game.isOvertime && <p className="overtime-message" role="status">Uzatma · Takımlar eşit sayıda tur oynayacak.</p>}
 
         {room.game.phase === "unable-to-continue" ? (
           <p className="game-unavailable-message" role="alert">
@@ -292,6 +328,7 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
           </section>
         </div>
 
+        <MatchHistory events={room.recentEvents} />
         <section className="game-settings" aria-label="Oyun ayarları">
           <p>Tur süresi: <strong>{room.settings.roundDurationSeconds} saniye</strong></p>
           <p>Pas hakkı: <strong>{room.settings.passLimit}</strong></p>
@@ -315,6 +352,7 @@ function RoundScreen({ room }: { room: RoomState }) {
   const navigate = useNavigate();
   const view = usePersonalGameView();
   const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [now, setNow] = useState(Date.now());
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
   const currentPlayer = room.players.find((player) => player.id === getCurrentPlayerId());
@@ -330,6 +368,17 @@ function RoundScreen({ room }: { room: RoomState }) {
   const cardVersion = visibleCard ? view.cardVersion : null;
   const passesRemaining = Math.max(0, room.settings.passLimit - room.game.passesUsed);
   const isPaused = room.game.roundPausedRemainingMs !== null;
+  const tabuCooling = room.game.tabuCooldownUntil !== null && now < room.game.tabuCooldownUntil;
+  const teamAPlayers = room.players.filter((player) => player.team === "A");
+  const teamBPlayers = room.players.filter((player) => player.team === "B");
+
+  useEffect(() => {
+    setNow(Date.now());
+    const until = room.game.tabuCooldownUntil;
+    if (until === null || until <= Date.now()) return undefined;
+    const timer = window.setTimeout(() => setNow(Date.now()), until - Date.now() + 10);
+    return () => window.clearTimeout(timer);
+  }, [room.game.tabuCooldownUntil]);
 
   useEffect(() => {
     if (room.game.roundPausedRemainingMs !== null) {
@@ -347,7 +396,7 @@ function RoundScreen({ room }: { room: RoomState }) {
   useEffect(() => { setActionError(""); }, [view.cardVersion]);
 
   async function act(action: CardAction) {
-    if (cardVersion === null || actionPending || isPaused) return;
+    if (cardVersion === null || actionPending || isPaused || (action === "tabu" && tabuCooling)) return;
     setActionError("");
     setActionPending(true);
     const response = await sendCardAction({ action, cardVersion });
@@ -357,12 +406,13 @@ function RoundScreen({ room }: { room: RoomState }) {
 
   return (
     <main className="page-shell lobby-shell">
-      <section className="game-card" aria-labelledby="round-title">
+      <section className="game-card match-game-card" aria-labelledby="round-title">
         <header className="lobby-header">
           <p className="eyebrow">OYUN DEVAM EDİYOR</p>
           <h1 className="brand-logo brand-logo-game" id="round-title">TABU<span>!</span></h1>
         </header>
-        <ScoreBoard scores={room.game.scores} activeTeam={activeTeam} targetScore={room.settings.targetScore} />
+        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={activeTeam} targetScore={room.settings.targetScore} />
+        {room.game.isOvertime && <p className="overtime-message" role="status">Uzatma · Birer tur daha oynanıyor.</p>}
         <div className={`round-summary round-team-${activeTeam}`}>
           <div>
             <p className="turn-kicker">ŞİMDİ ANLATIYOR</p>
@@ -374,6 +424,12 @@ function RoundScreen({ room }: { room: RoomState }) {
           </div>
         </div>
 
+        <div className="match-stage">
+          <section className="team-panel match-team-a" aria-label="Takım A oyuncuları">
+            <div className="team-panel-heading"><h3>Takım A</h3><span>{teamAPlayers.length} oyuncu</span></div>
+            <TeamPlayerList players={teamAPlayers} captainId={room.captainAId} clueGiverId={room.game.clueGiverId} />
+          </section>
+          <div className="match-center">
         {isPaused && <p className="round-reconnecting" role="status">Anlatıcı yeniden bağlanıyor…</p>}
 
         {isActiveTeammate ? (
@@ -392,17 +448,24 @@ function RoundScreen({ room }: { room: RoomState }) {
             <div className="round-buttons">
               <button className="button button-correct" disabled={isPaused || actionPending || cardVersion === null} onClick={() => void act("correct")} type="button">✓ Doğru</button>
               <button className="button button-pass" disabled={isPaused || actionPending || cardVersion === null || passesRemaining === 0} onClick={() => void act("pass")} type="button">→ Pas</button>
-              <button className="button button-tabu" disabled={isPaused || actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
+              <button className="button button-tabu" disabled={isPaused || actionPending || cardVersion === null || tabuCooling} onClick={() => void act("tabu")} type="button">! Tabu</button>
             </div>
             <p className="passes-remaining">Kalan pas: {passesRemaining}</p>
           </div>
         )}
         {!isClueGiver && isOpposingCaptain && (
           <div className="round-controls">
-            <button className="button button-tabu" disabled={isPaused || actionPending || cardVersion === null} onClick={() => void act("tabu")} type="button">! Tabu</button>
+            <button className="button button-tabu" disabled={isPaused || actionPending || cardVersion === null || tabuCooling} onClick={() => void act("tabu")} type="button">! Tabu</button>
           </div>
         )}
         {actionError && <p className="validation-message round-error" role="alert">{actionError}</p>}
+        <MatchHistory events={room.recentEvents} />
+          </div>
+          <section className="team-panel match-team-b" aria-label="Takım B oyuncuları">
+            <div className="team-panel-heading"><h3>Takım B</h3><span>{teamBPlayers.length} oyuncu</span></div>
+            <TeamPlayerList players={teamBPlayers} captainId={room.captainBId} clueGiverId={room.game.clueGiverId} />
+          </section>
+        </div>
         <button className="button button-secondary" type="button" onClick={() => void leaveRoom().then(() => navigate("/"))}>Odadan Ayrıl</button>
       </section>
     </main>
@@ -423,6 +486,9 @@ function LobbyPage() {
   const [settingsPending, setSettingsPending] = useState(false);
   const [gameStartError, setGameStartError] = useState("");
   const [gameStartPending, setGameStartPending] = useState(false);
+  const [kickTargetId, setKickTargetId] = useState<string | null>(null);
+  const [kickPending, setKickPending] = useState(false);
+  const [kickError, setKickError] = useState("");
   const previousGame = useRef<{ phase: RoomState["game"]["phase"]; roundId: number | null } | null>(null);
 
   useEffect(() => {
@@ -475,6 +541,9 @@ function LobbyPage() {
   }, [room?.game.phase]);
 
   if (!room || room.code !== roomCode.toUpperCase()) {
+    if (getLastKickedRoomCode() === roomCode.toUpperCase()) {
+      return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}&kicked=1`} replace />;
+    }
     if (recovery === "missing") {
       return <Navigate to={`/?room=${encodeURIComponent(roomCode.toUpperCase())}`} replace />;
     }
@@ -516,6 +585,16 @@ function LobbyPage() {
       setGameStartError("");
     }
     setMovePending(false);
+  }
+
+  async function confirmKick() {
+    if (!kickTargetId) return;
+    setKickError("");
+    setKickPending(true);
+    const response = await kickPlayer({ playerId: kickTargetId });
+    if (response.ok) setKickTargetId(null);
+    else setKickError(kickErrorMessage(response.error));
+    setKickPending(false);
   }
 
   async function selectCaptain(team: Team, captainId: string | null) {
@@ -611,7 +690,21 @@ function LobbyPage() {
             </div>
             <p className="section-note">{isHost ? "Oyuncu kartlarını takımlara sürükle." : "Takımları oda sahibi düzenliyor."}</p>
           </div>
-          <LobbyTeamBoard room={room} isHost={isHost} movePending={movePending} onMove={handleMove} />
+          <LobbyTeamBoard room={room} isHost={isHost} movePending={movePending}
+            selfPlayerId={getCurrentPlayerId()} onMove={handleMove}
+            onKick={(playerId) => { setKickError(""); setKickTargetId(playerId); }} />
+          {isHost && kickTargetId && (
+            <div className="kick-confirmation" role="dialog" aria-label="Oyuncuyu odadan çıkar">
+              <p><strong>{room.players.find((player) => player.id === kickTargetId)?.name ?? "Oyuncu"}</strong> odadan çıkarılsın mı?</p>
+              <div className="kick-confirmation-actions">
+                <button className="button button-secondary" type="button" disabled={kickPending}
+                  onClick={() => setKickTargetId(null)}>İptal</button>
+                <button className="button button-primary" type="button" disabled={kickPending}
+                  onClick={() => void confirmKick()}>{kickPending ? "Çıkarılıyor…" : "Odadan At"}</button>
+              </div>
+              {kickError && <p className="validation-message" role="alert">{kickError}</p>}
+            </div>
+          )}
           {moveError && <p className="validation-message" role="alert">{moveError}</p>}
         </section>
 

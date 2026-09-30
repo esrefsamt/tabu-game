@@ -157,23 +157,27 @@ test("card results reach every room member only after valid actions and reveal o
     await waitFor(() => results.every((items) => items.length === 3 + score) &&
       states.every((state) => state?.game.scores.A === score));
     assert.deepEqual(results[1]!.at(-1), { action: "correct", word: card.word });
-    if (score < 10) {
-      await waitFor(() => views[0]?.cardVersion !== version);
-      winningEventOrder.length = 0;
-    }
+    await waitFor(() => views[0]?.cardVersion !== version);
+    winningEventOrder.length = 0;
   }
+  assert.ok(states.every((state) => state?.game.phase === "round-active" && state.game.winnerTeam === null));
+  assert.equal(clock.activeTimerCount, 1);
+  clock.advance(60_000);
+  await waitFor(() => states.every((state) => state?.game.phase === "turn-preparation" && state.game.activeTeam === "B"));
+  assert.deepEqual(await b1.emitWithAck("game:start-round"), { ok: true });
+  clock.advance(60_000);
   await waitFor(() => states.every((state) => state?.game.phase === "game-over") &&
     views.every((view) => view?.currentCard === null));
   assert.ok(states.every((state) => state?.game.winnerTeam === "A"));
   assert.ok(states.every((state) => state?.game.scores.A === 10));
   assert.ok(views.every((view) => view?.cardVersion === null));
-  assert.deepEqual(winningEventOrder, ["result", "game-over"]);
+  assert.deepEqual(winningEventOrder, ["game-over"]);
   assert.equal(clock.activeTimerCount, 0);
   assert.deepEqual(await a1.emitWithAck("game:card-action", { action: "correct", cardVersion: winningVersion }), {
     ok: false, error: "round-not-active"
   });
   assert.deepEqual(await a1.emitWithAck("game:start-round"), { ok: false, error: "round-not-ready" });
-  clock.advance(30_000);
+  clock.advance(60_000);
   assert.deepEqual(results.map((items) => items.length), [13, 13, 13, 13]);
   assert.ok(states.every((state) => state?.game.phase === "game-over"));
 

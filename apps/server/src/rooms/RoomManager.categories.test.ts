@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cardsForSelection } from "../cards/playerCategories.js";
+import { FakeRoundClock } from "../game/FakeRoundClock.test-helper.js";
 import { RoomManager } from "./RoomManager.js";
 
 function fixture() {
-  const rooms = new RoomManager();
+  const clock = new FakeRoundClock();
+  const rooms = new RoomManager(clock);
   const code = rooms.createRoom("a", "A").code;
   assert.equal(rooms.joinRoom("b", "B", code).ok, true);
   assert.equal(rooms.movePlayer(code, "a", { playerId: "a", team: "A" }).ok, true);
   assert.equal(rooms.movePlayer(code, "a", { playerId: "b", team: "B" }).ok, true);
   assert.equal(rooms.setCaptain(code, "a", { team: "A", captainId: "a" }).ok, true);
   assert.equal(rooms.setCaptain(code, "a", { team: "B", captainId: "b" }).ok, true);
-  return { rooms, code };
+  return { rooms, code, clock };
 }
 
 test("GENERAL defaults to every card and exposes no deck details", () => {
@@ -46,7 +48,7 @@ test("only lobby host can set valid categories and cannot mutate returned state"
 });
 
 test("real round draws only selected groups and keeps selection after match", () => {
-  const { rooms, code } = fixture();
+  const { rooms, code, clock } = fixture();
   const selection = { mode: "CUSTOM" as const, categories: ["FOOD" as const] };
   assert.equal(rooms.updateSettings(code, "a", { setting: "cardSelection", value: selection }).ok, true);
   const foodIds = new Set(cardsForSelection(selection).map((card) => card.id));
@@ -62,6 +64,9 @@ test("real round draws only selected groups and keeps selection after match", ()
     assert.equal(rooms.getPersonalGameView(code, "b")?.currentCard?.id, view.currentCard.id);
     assert.equal(rooms.cardAction(code, "a", { action: "correct", cardVersion: view.cardVersion }).ok, true);
   }
+  clock.advance(60_000);
+  assert.equal(rooms.startRound(code, "b").ok, true);
+  clock.advance(60_000);
   const result = rooms.returnToLobby(code, "a");
   assert.equal(result.ok, true);
   if (!result.ok) return;
