@@ -16,6 +16,8 @@ import type {
   ResumeRoomResponse,
   ReturnToLobbyResponse,
   RoundStartResponse,
+  SelectPowerUpPayload,
+  SelectPowerUpResponse,
   SettingsActionResponse,
   SetCaptainPayload,
   ServerToClientEvents,
@@ -269,6 +271,14 @@ export function returnToLobby(): Promise<ReturnToLobbyResponse> {
 export function startRound(): Promise<RoundStartResponse> {
   return requestLobbyAction<RoundStartResponse>(
     (acknowledge) => socket.emit("game:start-round", acknowledge),
+    { ok: false, error: "server-unavailable" },
+    { ok: false, error: "request-timeout" }
+  );
+}
+
+export function selectPowerUp(payload: SelectPowerUpPayload): Promise<SelectPowerUpResponse> {
+  return requestLobbyAction<SelectPowerUpResponse>(
+    (acknowledge) => socket.emit("game:select-power-up", payload, acknowledge),
     { ok: false, error: "server-unavailable" },
     { ok: false, error: "request-timeout" }
   );

@@ -9,6 +9,8 @@ import type {
   MovePlayerError,
   MovePlayerPayload,
   PassLimit,
+  PowerUp,
+  SelectPowerUpError,
   Player,
   RoomState,
   ReturnToLobbyError,
@@ -21,7 +23,7 @@ import type {
 } from "@tabu/shared";
 import {
   getCurrentPlayerId, getLastKickedRoomCode, hasRoomSession, kickPlayer, leaveRoom, movePlayer, resumeRoom, returnToLobby,
-  sendCardAction, setCaptain, socket, startGame, startRound,
+  sendCardAction, selectPowerUp, setCaptain, socket, startGame, startRound,
   updateRoomSettings, usePersonalGameView, useRoomState
 } from "../lib/socket";
 import CensoredCard from "../components/CensoredCard";
@@ -158,20 +160,33 @@ function cardActionErrorMessage(error: CardActionError): string {
   }
 }
 
-function ScoreBoard({ scores, completedRounds, activeTeam, targetScore }: {
+function powerUpErrorMessage(error: SelectPowerUpError): string {
+  switch (error) {
+    case "not-in-room": return "Oda bağlantısı bulunamadı.";
+    case "round-not-ready": return "Güçlendirme yalnızca tur hazırlığında seçilebilir.";
+    case "not-clue-giver": return "Güçlendirmeyi yalnızca anlatıcı seçebilir.";
+    case "invalid-power-up": return "Geçersiz güçlendirme.";
+    case "power-up-unavailable": return "Bu güçlendirme kullanıldı.";
+    case "server-unavailable": return "Sunucuya bağlanılamadı.";
+    case "request-timeout": return "Sunucudan yanıt alınamadı.";
+  }
+}
+
+function ScoreBoard({ scores, completedRounds, activeTeam, targetScore, powerUps }: {
   scores: RoomState["game"]["scores"];
   completedRounds: RoomState["game"]["completedRounds"];
   activeTeam: Team | null;
   targetScore: TargetScore;
+  powerUps: RoomState["game"]["powerUps"];
 }) {
   return (
     <div className="score-area">
       <div className="score-board" aria-label="Takım puanları">
         <div className={`score-team score-team-a${activeTeam === "A" ? " score-team-active" : ""}`}>
-          <span>TAKIM A</span><strong>{scores.A}</strong><small>{completedRounds.A} tur</small>
+          <span>TAKIM A</span><strong>{scores.A}</strong><small>{completedRounds.A} tur<br />⚡ {powerUps.A["double-score"] ? "2x" : "Kullanıldı"} · 🎯 {powerUps.A["attack-score"] ? "-Puan" : "Kullanıldı"}</small>
         </div>
         <div className={`score-team score-team-b${activeTeam === "B" ? " score-team-active" : ""}`}>
-          <span>TAKIM B</span><strong>{scores.B}</strong><small>{completedRounds.B} tur</small>
+          <span>TAKIM B</span><strong>{scores.B}</strong><small>{completedRounds.B} tur<br />⚡ {powerUps.B["double-score"] ? "2x" : "Kullanıldı"} · 🎯 {powerUps.B["attack-score"] ? "-Puan" : "Kullanıldı"}</small>
         </div>
       </div>
       <p className="target-score-label">Hedef puan: <strong>{targetScore}</strong></p>
@@ -225,7 +240,7 @@ function WinnerScreen({ room }: { room: RoomState }) {
           <h2 id="winner-title">TAKIM {winner} KAZANDI!</h2>
           <p>Eşit sayıda tur sonunda en yüksek puanı alan takım kazandı.</p>
         </div>
-        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={winner} targetScore={room.settings.targetScore} />
+        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={winner} targetScore={room.settings.targetScore} powerUps={room.game.powerUps} />
         <p className="winner-final-label">FİNAL SKORU</p>
         <p className="winner-final-score">{room.game.scores.A} <span>–</span> {room.game.scores.B}</p>
         <MatchHistory events={room.recentEvents} />
@@ -280,6 +295,8 @@ function TeamPlayerList({
 function GamePreparationScreen({ room }: { room: RoomState }) {
   const [roundError, setRoundError] = useState("");
   const [roundPending, setRoundPending] = useState(false);
+  const [powerUpPending, setPowerUpPending] = useState(false);
+  const [powerUpError, setPowerUpError] = useState("");
   const teamAPlayers = room.players.filter((player) => player.team === "A");
   const teamBPlayers = room.players.filter((player) => player.team === "B");
   const clueGiver = room.players.find((player) => player.id === room.game.clueGiverId);
@@ -294,6 +311,14 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
     setRoundPending(false);
   }
 
+  async function handleSelectPowerUp(powerUp: PowerUp | null) {
+    setPowerUpError("");
+    setPowerUpPending(true);
+    const response = await selectPowerUp({ powerUp });
+    if (!response.ok) setPowerUpError(powerUpErrorMessage(response.error));
+    setPowerUpPending(false);
+  }
+
   return (
     <main className="page-shell lobby-shell">
       <section className="game-card" aria-labelledby="game-screen-title">
@@ -302,7 +327,7 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
           <h1 className="brand-logo brand-logo-game" id="game-screen-title">TABU<span>!</span></h1>
         </header>
 
-        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={room.game.activeTeam} targetScore={room.settings.targetScore} />
+        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={room.game.activeTeam} targetScore={room.settings.targetScore} powerUps={room.game.powerUps} />
         {room.game.isOvertime && <p className="overtime-message" role="status">Uzatma · Takımlar eşit sayıda tur oynayacak.</p>}
 
         {room.game.phase === "unable-to-continue" ? (
@@ -334,7 +359,23 @@ function GamePreparationScreen({ room }: { room: RoomState }) {
           <p>Pas hakkı: <strong>{room.settings.passLimit}</strong></p>
           <p>Hedef puan: <strong>{room.settings.targetScore}</strong></p>
         </section>
-        {room.game.phase === "turn-preparation" && <p className="lobby-hint">Tura hazırlanılıyor</p>}
+        {room.game.phase === "turn-preparation" && <section className="power-up-picker" aria-label="Tur güçlendirmesi">
+          <h3>Bu tur güçlendirme kullan</h3>
+          <div className="power-up-options">
+            {(["double-score", "attack-score"] as const).map((powerUp) => {
+              const available = room.game.activeTeam ? room.game.powerUps[room.game.activeTeam][powerUp] : false;
+              return <button key={powerUp} type="button" className={`power-up-option${room.game.selectedPowerUp === powerUp ? " selected" : ""}`}
+                aria-pressed={room.game.selectedPowerUp === powerUp} disabled={!isClueGiver || !available || powerUpPending || roundPending}
+                onClick={() => void handleSelectPowerUp(room.game.selectedPowerUp === powerUp ? null : powerUp)}>
+                {powerUp === "double-score" ? "⚡ 2x PUAN" : "🎯 -PUAN"} {!available && <small>Kullanıldı</small>}
+              </button>;
+            })}
+            {isClueGiver && <button type="button" className="power-up-option" disabled={powerUpPending || roundPending || room.game.selectedPowerUp === null}
+              onClick={() => void handleSelectPowerUp(null)}>Güçlendirme Kullanma</button>}
+          </div>
+          {!isClueGiver && <p>{room.game.selectedPowerUp ? `Seçilen: ${room.game.selectedPowerUp === "double-score" ? "2x Puan" : "-Puan"}` : "Anlatıcının seçimi bekleniyor."}</p>}
+          {powerUpError && <p className="validation-message" role="alert">{powerUpError}</p>}
+        </section>}
         {room.game.phase === "turn-preparation" && isClueGiver && (
           <div className="start-game-controls">
             <button className="button button-primary" disabled={roundPending} onClick={() => void handleStartRound()} type="button">
@@ -411,7 +452,8 @@ function RoundScreen({ room }: { room: RoomState }) {
           <p className="eyebrow">OYUN DEVAM EDİYOR</p>
           <h1 className="brand-logo brand-logo-game" id="round-title">TABU<span>!</span></h1>
         </header>
-        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={activeTeam} targetScore={room.settings.targetScore} />
+        <ScoreBoard scores={room.game.scores} completedRounds={room.game.completedRounds} activeTeam={activeTeam} targetScore={room.settings.targetScore} powerUps={room.game.powerUps} />
+        {room.game.activePowerUp && <p className="power-up-active" role="status">{room.game.activePowerUp === "double-score" ? "⚡ 2x PUAN AKTİF" : "🎯 -PUAN AKTİF"}</p>}
         {room.game.isOvertime && <p className="overtime-message" role="status">Uzatma · Birer tur daha oynanıyor.</p>}
         <div className={`round-summary round-team-${activeTeam}`}>
           <div>

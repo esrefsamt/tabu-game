@@ -90,6 +90,14 @@ test("card results reach every room member only after valid actions and reveal o
   assert.deepEqual(await a1.emitWithAck("room:set-captain", { team: "A", captainId: playerIds.get(a2)! }), { ok: true });
   assert.deepEqual(await a1.emitWithAck("room:set-captain", { team: "B", captainId: playerIds.get(b1)! }), { ok: true });
   assert.deepEqual(await a1.emitWithAck("game:start"), { ok: true });
+  assert.deepEqual(await a2.emitWithAck("game:select-power-up", { powerUp: "double-score" }), {
+    ok: false, error: "not-clue-giver"
+  });
+  assert.deepEqual(await a1.emitWithAck("game:select-power-up", { powerUp: "double-score" }), { ok: true });
+  await waitFor(() => states.every((state) => state?.game.selectedPowerUp === "double-score"));
+  assert.ok(states.every((state) => state?.game.powerUps.A["double-score"] === true));
+  assert.deepEqual(await a1.emitWithAck("game:select-power-up", { powerUp: null }), { ok: true });
+  await waitFor(() => states.every((state) => state?.game.selectedPowerUp === null));
   assert.deepEqual(await a1.emitWithAck("game:start-round"), { ok: true });
   await waitFor(() => views.every((view) => view?.roundId === 1));
 

@@ -13,6 +13,7 @@ import type {
   RoomState,
   ReturnToLobbyResponse,
   RoundStartResponse,
+  SelectPowerUpResponse,
   ServerToClientEvents,
   SettingsActionResponse,
   SocketData,
@@ -326,6 +327,21 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager, session
 
       broadcastRoomState(io, rooms, sessions, roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies RoundStartResponse);
+    });
+
+    socket.on("game:select-power-up", (payload, acknowledge) => {
+      const session = sessions.current(socket.id);
+      if (!session) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies SelectPowerUpResponse);
+        return;
+      }
+      const result = rooms.selectPowerUp(session.roomCode, session.playerId, payload);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+      broadcastRoomState(io, rooms, sessions, session.roomCode, result.room);
+      respond(acknowledge, { ok: true } satisfies SelectPowerUpResponse);
     });
 
     socket.on("game:card-action", (payload, acknowledge) => {

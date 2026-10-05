@@ -44,7 +44,7 @@ export default function CardResultToasts() {
       {toasts.map(({ id, result }) => (
         <p className={`card-result-toast card-result-${result.action}`} key={id}>
           <span className="card-result-icon" aria-hidden="true">{RESULT_ICON[result.action]}</span>
-          <span>{RESULT_TEXT[result.action]}: <strong>{result.word}</strong></span>
+          <span>{RESULT_TEXT[result.action]}: <strong>{result.word}</strong>{result.scoreEffect && ` (${result.scoreEffect})`}</span>
         </p>
       ))}
     </div>

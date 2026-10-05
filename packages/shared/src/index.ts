@@ -26,10 +26,13 @@ export interface RoomSettings {
 export type GamePhase = "lobby" | "turn-preparation" | "round-active" | "unable-to-continue" | "game-over";
 export type GameStateError = "team-empty";
 export type CardAction = "correct" | "pass" | "tabu";
+export type PowerUp = "double-score" | "attack-score";
+export type PowerUpInventory = Record<PowerUp, boolean>;
 
 export interface CardResult {
   action: CardAction;
   word: string;
+  scoreEffect?: string;
 }
 
 export interface TeamScores {
@@ -51,6 +54,9 @@ export interface PublicGameState {
   roundPausedRemainingMs: number | null;
   passesUsed: number;
   tabuCooldownUntil: number | null;
+  powerUps: Record<Team, PowerUpInventory>;
+  selectedPowerUp: PowerUp | null;
+  activePowerUp: PowerUp | null;
 }
 
 export type MatchEventType = "round-start" | "correct" | "pass" | "tabu" | "round-paused" | "round-resumed" | "match-win";
@@ -215,6 +221,11 @@ export type RoundStartError =
 
 export type RoundStartResponse = { ok: true } | { ok: false; error: RoundStartError };
 
+export interface SelectPowerUpPayload { powerUp: PowerUp | null }
+export type SelectPowerUpError = "not-in-room" | "round-not-ready" | "not-clue-giver" |
+  "invalid-power-up" | "power-up-unavailable" | "server-unavailable" | "request-timeout";
+export type SelectPowerUpResponse = { ok: true } | { ok: false; error: SelectPowerUpError };
+
 export interface CardActionPayload {
   action: CardAction;
   cardVersion: number;
@@ -266,6 +277,7 @@ export interface ClientToServerEvents {
   "game:start": (acknowledge: (response: GameStartResponse) => void) => void;
   "game:return-to-lobby": (acknowledge: (response: ReturnToLobbyResponse) => void) => void;
   "game:start-round": (acknowledge: (response: RoundStartResponse) => void) => void;
+  "game:select-power-up": (payload: SelectPowerUpPayload, acknowledge: (response: SelectPowerUpResponse) => void) => void;
   "game:card-action": (
     payload: CardActionPayload,
     acknowledge: (response: CardActionResponse) => void

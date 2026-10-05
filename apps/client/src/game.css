@@ -27,6 +27,15 @@
 .score-area { margin-bottom: 19px; }
 .score-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .target-score-label { margin: 12px 0 0; color: var(--muted); font-size: 13px; font-weight: 700; text-align: center; }
+.power-up-picker { margin: 20px 0 0; padding: 16px; border: 2px solid #e5def8; border-radius: 16px; background: #faf7ff; text-align: center; }
+.power-up-picker h3 { margin: 0 0 12px; color: var(--blue-dark); font-size: 16px; }
+.power-up-picker p { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+.power-up-options { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
+.power-up-option { min-height: 43px; padding: 9px 14px; border: 2px solid #b9a7ee; border-radius: 11px; background: white; color: #523b93; font: inherit; font-size: 13px; font-weight: 900; cursor: pointer; }
+.power-up-option.selected { border-color: #7451d4; background: #e8ddff; box-shadow: 0 3px 0 #bfa9f0; }
+.power-up-option:disabled { opacity: .52; cursor: default; }
+.power-up-option small { display: block; font-size: 10px; }
+.power-up-active { width: fit-content; margin: 0 auto 13px; padding: 8px 14px; border-radius: 999px; background: #e8ddff; color: #543a9a; font-size: 13px; font-weight: 1000; text-align: center; }
 .target-score-label strong { color: var(--ink); font-weight: 1000; }
 .score-team small { color: inherit; font-size: 11px; font-weight: 800; white-space: nowrap; }
 .overtime-message { margin: 14px 0; padding: 10px 14px; border-radius: 12px; background: #fff5dd; color: #765517; font-size: 14px; font-weight: 800; text-align: center; }

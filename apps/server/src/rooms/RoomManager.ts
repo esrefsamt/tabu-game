@@ -9,6 +9,9 @@ import type {
   MatchEvent,
   MatchEventType,
   PersonalGameView,
+  PowerUp,
+  PowerUpInventory,
+  SelectPowerUpError,
   Player,
   PublicGameState,
   ReturnToLobbyError,
@@ -51,8 +54,19 @@ const LOBBY_GAME_STATE: PublicGameState = {
   roundEndsAt: null,
   roundPausedRemainingMs: null,
   passesUsed: 0,
-  tabuCooldownUntil: null
+  tabuCooldownUntil: null,
+  powerUps: { A: { "double-score": true, "attack-score": true }, B: { "double-score": true, "attack-score": true } },
+  selectedPowerUp: null,
+  activePowerUp: null
 };
+
+function freshPowerUps(): Record<Team, PowerUpInventory> {
+  return { A: { "double-score": true, "attack-score": true }, B: { "double-score": true, "attack-score": true } };
+}
+
+function copyPowerUps(powerUps: Record<Team, PowerUpInventory>): Record<Team, PowerUpInventory> {
+  return { A: { ...powerUps.A }, B: { ...powerUps.B } };
+}
 
 const MAX_RECENT_EVENTS = 30;
 
@@ -70,6 +84,8 @@ interface Room {
   historyProfileId: string;
   recentEvents: MatchEvent[];
   nextEventId: number;
+  powerUps: Record<Team, PowerUpInventory>;
+  selectedPowerUp: PowerUp | null;
 }
 
 export type JoinRoomResult =
@@ -103,6 +119,8 @@ export type ReturnToLobbyResult =
 export type RoundStartResult =
   | { ok: true; room: RoomState }
   | { ok: false; error: RoundStartError };
+
+export type SelectPowerUpResult = { ok: true; room: RoomState } | { ok: false; error: SelectPowerUpError };
 
 export type CardActionResult =
   | { ok: true; room: RoomState; cardResult: CardResult }
@@ -141,7 +159,9 @@ export class RoomManager {
       lastCardVersion: 0,
       historyProfileId,
       recentEvents: [],
-      nextEventId: 1
+      nextEventId: 1,
+      powerUps: freshPowerUps(),
+      selectedPowerUp: null
     };
 
     this.rooms.set(code, room);
@@ -366,6 +386,8 @@ export class RoomManager {
     }
 
     this.turnEngines.set(roomCode, new TurnEngine(teamAPlayerIds, teamBPlayerIds));
+    room.powerUps = freshPowerUps();
+    room.selectedPowerUp = null;
     this.roundEngines.set(roomCode, new RoundEngine(
       () => this.decks.draw(roomCode),
       () => this.completeRound(roomCode),
@@ -398,6 +420,8 @@ export class RoomManager {
     room.completedRounds = { A: 0, B: 0 };
     room.isOvertime = false;
     room.recentEvents = [];
+    room.powerUps = freshPowerUps();
+    room.selectedPowerUp = null;
     if (room.captainAId && room.players.get(room.captainAId)?.team !== "A") {
       room.captainAId = null;
     }
@@ -433,8 +457,32 @@ export class RoomManager {
       return { ok: false, error: "team-unavailable" };
     }
 
-    round.start(room.settings.roundDurationSeconds);
+    const team = turnState.activeTeam;
+    const selected = room.selectedPowerUp;
+    if (!team || (selected && !room.powerUps[team][selected])) return { ok: false, error: "round-not-ready" };
+    round.start(room.settings.roundDurationSeconds, selected);
+    if (selected) room.powerUps[team][selected] = false;
+    room.selectedPowerUp = null;
     this.addEvent(room, "round-start", `Sıra ${turnState.activeTeam === "A" ? "A" : "B"} takımında: ${room.players.get(requesterId)?.name ?? "Anlatıcı"}`);
+    return { ok: true, room: this.toRoomState(room) };
+  }
+
+  selectPowerUp(roomCode: string, requesterId: string, payload: unknown): SelectPowerUpResult {
+    const room = this.rooms.get(roomCode);
+    if (!room?.players.has(requesterId)) return { ok: false, error: "not-in-room" };
+    const turn = this.turnEngines.get(roomCode)?.publicState;
+    if (room.winnerTeam !== null || turn?.phase !== "turn-preparation" || this.roundEngines.get(roomCode)?.isActive) {
+      return { ok: false, error: "round-not-ready" };
+    }
+    if (turn.clueGiverId !== requesterId) return { ok: false, error: "not-clue-giver" };
+    if (!isExactRecord(payload, ["powerUp"]) ||
+        (payload.powerUp !== null && payload.powerUp !== "double-score" && payload.powerUp !== "attack-score")) {
+      return { ok: false, error: "invalid-power-up" };
+    }
+    if (payload.powerUp && (!turn.activeTeam || !room.powerUps[turn.activeTeam][payload.powerUp])) {
+      return { ok: false, error: "power-up-unavailable" };
+    }
+    room.selectedPowerUp = payload.powerUp;
     return { ok: true, room: this.toRoomState(room) };
   }
 
@@ -480,11 +528,17 @@ export class RoomManager {
     }
     const actionText = payload.action === "correct" ? `${player.name} doğru bildi` :
       payload.action === "pass" ? `${player.name} pas geçti` : `${activeTeam} takımı faul verdi`;
-    this.addEvent(room, payload.action, `${actionText} (${result.consumedWord})`);
+    const effect = payload.action === "pass" ? "0" : round.activePowerUp === "attack-score"
+      ? `Takım ${activeTeam === "A" ? "B" : "A"} ${payload.action === "correct" ? "-1" : "+1"}`
+      : payload.action === "correct" ? `+${round.activePowerUp === "double-score" ? 2 : 1}`
+      : `-${round.activePowerUp === "double-score" ? 2 : 1}`;
+    this.addEvent(room, payload.action, `${actionText} (${result.consumedWord}) • ${effect}`);
     return {
       ok: true,
       room: this.toRoomState(room),
-      cardResult: { action: payload.action, word: result.consumedWord }
+      cardResult: { action: payload.action, word: result.consumedWord,
+        ...(round.activePowerUp ? { scoreEffect: round.activePowerUp === "attack-score" && payload.action !== "pass"
+          ? `Rakip ${payload.action === "correct" ? "-1" : "+1"}` : effect } : {}) }
     };
   }
 
@@ -518,6 +572,7 @@ export class RoomManager {
     }
 
     engine.advanceTurn();
+    room.selectedPowerUp = null;
     return this.toRoomState(room);
   }
 
@@ -540,7 +595,9 @@ export class RoomManager {
     const round = this.roundEngines.get(roomCode);
     const wasActiveClueGiver = round?.isActive && turns?.publicState.clueGiverId === playerId;
     const abortedTeam = round?.isActive ? turns?.publicState.activeTeam : null;
+    const wasPreparingClueGiver = turns?.publicState.phase === "turn-preparation" && turns.publicState.clueGiverId === playerId;
     const turnState = room.winnerTeam === null ? turns?.removePlayer(playerId) : undefined;
+    if (wasPreparingClueGiver) room.selectedPowerUp = null;
     if (round?.isActive && (wasActiveClueGiver || turnState?.phase === "unable-to-continue")) {
       round.abort();
     }
@@ -585,6 +642,7 @@ export class RoomManager {
       }
       else room.isOvertime = true;
     }
+    room.selectedPowerUp = null;
     if (room.winnerTeam === null && turns.publicState.phase === "turn-preparation") turns.advanceTurn();
     this.statePublisher?.(roomCode, this.toRoomState(room));
   }
@@ -627,8 +685,11 @@ export class RoomManager {
       roundEndsAt: roundState?.roundEndsAt ?? null,
       roundPausedRemainingMs: roundState?.roundPausedRemainingMs ?? null,
       passesUsed: roundState?.passesUsed ?? 0,
-      tabuCooldownUntil: roundState?.tabuCooldownUntil ?? null
-    } : { ...LOBBY_GAME_STATE, scores: { ...LOBBY_GAME_STATE.scores }, completedRounds: { A: 0, B: 0 } };
+      tabuCooldownUntil: roundState?.tabuCooldownUntil ?? null,
+      powerUps: copyPowerUps(room.powerUps),
+      selectedPowerUp: round?.isActive ? null : room.selectedPowerUp,
+      activePowerUp: round?.activePowerUp ?? null
+    } : { ...LOBBY_GAME_STATE, scores: { ...LOBBY_GAME_STATE.scores }, completedRounds: { A: 0, B: 0 }, powerUps: copyPowerUps(room.powerUps) };
     return {
       code: room.code,
       captainAId: room.captainAId,

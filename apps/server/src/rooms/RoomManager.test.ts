@@ -27,7 +27,10 @@ test("room state keeps Phase 4 lobby features and never includes private deck st
     roundEndsAt: null,
     roundPausedRemainingMs: null,
     passesUsed: 0,
-    tabuCooldownUntil: null
+    tabuCooldownUntil: null,
+    powerUps: { A: { "double-score": true, "attack-score": true }, B: { "double-score": true, "attack-score": true } },
+    selectedPowerUp: null,
+    activePowerUp: null
   });
 
   const joined = rooms.joinRoom("guest", "Misafir", roomCode);

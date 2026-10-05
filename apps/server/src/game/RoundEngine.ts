@@ -1,4 +1,4 @@
-import type { CardAction, TabuCard, Team, TeamScores } from "@tabu/shared";
+import type { CardAction, PowerUp, TabuCard, Team, TeamScores } from "@tabu/shared";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
@@ -33,6 +33,7 @@ export class RoundEngine {
   private tabuCooldownUntilValue: number | null = null;
   private timer: TimerHandle | null = null;
   private timerGeneration = 0;
+  private activePowerUpValue: PowerUp | null = null;
 
   constructor(
     private readonly drawNextCard: () => TabuCard,
@@ -50,6 +51,8 @@ export class RoundEngine {
   get isPaused(): boolean {
     return this.pausedRemainingMs !== null;
   }
+
+  get activePowerUp(): PowerUp | null { return this.activePowerUpValue; }
 
   get currentCard(): TabuCard | null {
     return this.currentCardValue;
@@ -81,7 +84,7 @@ export class RoundEngine {
     };
   }
 
-  start(durationSeconds: number): void {
+  start(durationSeconds: number, powerUp: PowerUp | null = null): void {
     if (this.isActive) {
       throw new Error("A round is already active.");
     }
@@ -90,6 +93,7 @@ export class RoundEngine {
     }
 
     this.currentCardValue = this.drawNextCard();
+    this.activePowerUpValue = powerUp;
     this.cardVersionValue += 1;
     this.roundSequence += 1;
     this.roundIdValue = this.roundSequence;
@@ -146,12 +150,15 @@ export class RoundEngine {
 
     const consumedWord = this.currentCardValue.word;
 
+    const opposingTeam: Team = activeTeam === "A" ? "B" : "A";
     if (action === "correct") {
-      this.scores[activeTeam] += 1;
+      if (this.activePowerUpValue === "attack-score") this.scores[opposingTeam] -= 1;
+      else this.scores[activeTeam] += this.activePowerUpValue === "double-score" ? 2 : 1;
     } else if (action === "pass") {
       this.passesUsedValue += 1;
     } else {
-      this.scores[activeTeam] -= 1;
+      if (this.activePowerUpValue === "attack-score") this.scores[opposingTeam] += 1;
+      else this.scores[activeTeam] -= this.activePowerUpValue === "double-score" ? 2 : 1;
       this.tabuCooldownUntilValue = this.clock.now() + TABU_COOLDOWN_MS;
     }
 
@@ -207,5 +214,6 @@ export class RoundEngine {
     this.roundEndsAtValue = null;
     this.pausedRemainingMs = null;
     this.passesUsedValue = 0;
+    this.activePowerUpValue = null;
   }
 }
