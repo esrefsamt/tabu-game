@@ -170,6 +170,8 @@ test("three players retain identity, roles, and room during reconnect; stale tab
   assert.equal(hostResume.room.players.find((item) => item.id === hostId)?.isHost, true);
   assert.deepEqual(await host.emitWithAck("room:update-settings", { setting: "targetScore", value: 10 }),
     { ok: false, error: "not-in-room" });
+  assert.deepEqual(await host.emitWithAck("game:set-pause", { paused: true }),
+    { ok: false, error: "not-in-room" });
   assert.deepEqual(await newHostTab.emitWithAck("room:update-settings", { setting: "targetScore", value: 10 }), { ok: true });
   assert.deepEqual(await opponent.emitWithAck("room:resume", { roomCode: room.code, sessionToken: hostToken }),
     { ok: false, error: "already-in-room" });
@@ -431,6 +433,8 @@ test("host kick invalidates a live session, removes authority, and allows a fres
   assert.deepEqual(await guest.emitWithAck("room:move-player", { playerId: observed.playerId, team: "B" }),
     { ok: false, error: "not-in-room" });
   assert.deepEqual(await guest.emitWithAck("game:start"), { ok: false, error: "not-in-room" });
+  assert.deepEqual(await guest.emitWithAck("game:set-pause", { paused: true }),
+    { ok: false, error: "not-in-room" });
   const stale = await player();
   assert.deepEqual(await stale.emitWithAck("room:resume", { roomCode: code, sessionToken: joined.sessionToken }),
     { ok: false, error: "invalid-session" });

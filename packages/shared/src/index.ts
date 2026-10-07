@@ -28,6 +28,8 @@ export type GameStateError = "team-empty";
 export type CardAction = "correct" | "pass" | "tabu";
 export type PowerUp = "double-score" | "attack-score";
 export type PowerUpInventory = Record<PowerUp, boolean>;
+export type RoundPauseCause = "captain" | "clue-giver-reconnect";
+export type RoundPauseCauses = Record<RoundPauseCause, boolean>;
 
 export interface CardResult {
   action: CardAction;
@@ -52,6 +54,7 @@ export interface PublicGameState {
   roundId: number | null;
   roundEndsAt: number | null;
   roundPausedRemainingMs: number | null;
+  pauseCauses: RoundPauseCauses;
   passesUsed: number;
   tabuCooldownUntil: number | null;
   powerUps: Record<Team, PowerUpInventory>;
@@ -221,6 +224,11 @@ export type RoundStartError =
 
 export type RoundStartResponse = { ok: true } | { ok: false; error: RoundStartError };
 
+export interface SetPausePayload { paused: boolean }
+export type SetPauseError = "not-in-room" | "not-captain" | "round-not-active" |
+  "invalid-request" | "invalid-pause-state" | "pause-cooldown" | "server-unavailable" | "request-timeout";
+export type SetPauseResponse = { ok: true } | { ok: false; error: SetPauseError };
+
 export interface SelectPowerUpPayload { powerUp: PowerUp | null }
 export type SelectPowerUpError = "not-in-room" | "round-not-ready" | "not-clue-giver" |
   "invalid-power-up" | "power-up-unavailable" | "server-unavailable" | "request-timeout";
@@ -277,6 +285,7 @@ export interface ClientToServerEvents {
   "game:start": (acknowledge: (response: GameStartResponse) => void) => void;
   "game:return-to-lobby": (acknowledge: (response: ReturnToLobbyResponse) => void) => void;
   "game:start-round": (acknowledge: (response: RoundStartResponse) => void) => void;
+  "game:set-pause": (payload: SetPausePayload, acknowledge: (response: SetPauseResponse) => void) => void;
   "game:select-power-up": (payload: SelectPowerUpPayload, acknowledge: (response: SelectPowerUpResponse) => void) => void;
   "game:card-action": (
     payload: CardActionPayload,

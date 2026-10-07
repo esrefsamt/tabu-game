@@ -12,6 +12,7 @@ import type {
   PowerUp,
   PowerUpInventory,
   SelectPowerUpError,
+  SetPauseError,
   Player,
   PublicGameState,
   ReturnToLobbyError,
@@ -53,6 +54,7 @@ const LOBBY_GAME_STATE: PublicGameState = {
   roundId: null,
   roundEndsAt: null,
   roundPausedRemainingMs: null,
+  pauseCauses: { captain: false, "clue-giver-reconnect": false },
   passesUsed: 0,
   tabuCooldownUntil: null,
   powerUps: { A: { "double-score": true, "attack-score": true }, B: { "double-score": true, "attack-score": true } },
@@ -86,6 +88,7 @@ interface Room {
   nextEventId: number;
   powerUps: Record<Team, PowerUpInventory>;
   selectedPowerUp: PowerUp | null;
+  lastManualPauseAt: number | null;
 }
 
 export type JoinRoomResult =
@@ -121,6 +124,7 @@ export type RoundStartResult =
   | { ok: false; error: RoundStartError };
 
 export type SelectPowerUpResult = { ok: true; room: RoomState } | { ok: false; error: SelectPowerUpError };
+export type SetPauseResult = { ok: true; room: RoomState } | { ok: false; error: SetPauseError };
 
 export type CardActionResult =
   | { ok: true; room: RoomState; cardResult: CardResult }
@@ -161,7 +165,8 @@ export class RoomManager {
       recentEvents: [],
       nextEventId: 1,
       powerUps: freshPowerUps(),
-      selectedPowerUp: null
+      selectedPowerUp: null,
+      lastManualPauseAt: null
     };
 
     this.rooms.set(code, room);
@@ -211,7 +216,7 @@ export class RoomManager {
     if (!room || !player) return null;
     player.isConnected = true;
     if (this.turnEngines.get(roomCode)?.publicState.clueGiverId === playerId) {
-      if (this.roundEngines.get(roomCode)?.resume()) this.addEvent(room, "round-resumed", "Tur devam ediyor.");
+      if (this.roundEngines.get(roomCode)?.resume("clue-giver-reconnect")) this.addEvent(room, "round-resumed", "Anlatıcı yeniden bağlandı.");
     }
     return this.toRoomState(room);
   }
@@ -223,7 +228,7 @@ export class RoomManager {
     player.isConnected = false;
     const turns = this.turnEngines.get(roomCode);
     const round = this.roundEngines.get(roomCode);
-    if (round?.isActive && turns?.publicState.clueGiverId === playerId && round.pause()) {
+    if (round?.isActive && turns?.publicState.clueGiverId === playerId && round.pause("clue-giver-reconnect")) {
       this.addEvent(room, "round-paused", "Anlatıcı yeniden bağlanıyor…");
     }
     return this.toRoomState(room);
@@ -388,6 +393,7 @@ export class RoomManager {
     this.turnEngines.set(roomCode, new TurnEngine(teamAPlayerIds, teamBPlayerIds));
     room.powerUps = freshPowerUps();
     room.selectedPowerUp = null;
+    room.lastManualPauseAt = null;
     this.roundEngines.set(roomCode, new RoundEngine(
       () => this.decks.draw(roomCode),
       () => this.completeRound(roomCode),
@@ -422,6 +428,7 @@ export class RoomManager {
     room.recentEvents = [];
     room.powerUps = freshPowerUps();
     room.selectedPowerUp = null;
+    room.lastManualPauseAt = null;
     if (room.captainAId && room.players.get(room.captainAId)?.team !== "A") {
       room.captainAId = null;
     }
@@ -483,6 +490,37 @@ export class RoomManager {
       return { ok: false, error: "power-up-unavailable" };
     }
     room.selectedPowerUp = payload.powerUp;
+    return { ok: true, room: this.toRoomState(room) };
+  }
+
+  setManualPause(roomCode: string, requesterId: string, payload: unknown): SetPauseResult {
+    const room = this.rooms.get(roomCode);
+    const player = room?.players.get(requesterId);
+    if (!room || !player || !player.isConnected) return { ok: false, error: "not-in-room" };
+    if (room.captainAId !== requesterId && room.captainBId !== requesterId) {
+      return { ok: false, error: "not-captain" };
+    }
+    if (!isExactRecord(payload, ["paused"]) || typeof payload.paused !== "boolean") {
+      return { ok: false, error: "invalid-request" };
+    }
+    const round = this.roundEngines.get(roomCode);
+    if (room.winnerTeam !== null || !round?.isActive || round.expireIfDue()) {
+      return { ok: false, error: "round-not-active" };
+    }
+    if (round.hasPauseCause("captain") === payload.paused ||
+        (payload.paused && round.hasPauseCause("clue-giver-reconnect"))) {
+      return { ok: false, error: "invalid-pause-state" };
+    }
+    const now = this.roundClock.now();
+    if (room.lastManualPauseAt !== null && now - room.lastManualPauseAt < 900) {
+      return { ok: false, error: "pause-cooldown" };
+    }
+    const changed = payload.paused ? round.pause("captain") : round.resume("captain");
+    if (!changed) return { ok: false, error: "round-not-active" };
+    room.lastManualPauseAt = now;
+    this.addEvent(room, payload.paused || round.isPaused ? "round-paused" : "round-resumed",
+      payload.paused ? `${player.name} oyunu duraklattı.` :
+        round.isPaused ? "Kaptan duraklatması kaldırıldı; anlatıcı bekleniyor." : "Oyun devam ediyor.");
     return { ok: true, room: this.toRoomState(room) };
   }
 
@@ -608,6 +646,11 @@ export class RoomManager {
     if (room.captainBId === playerId) {
       room.captainBId = null;
     }
+    if (round?.isActive && round.hasPauseCause("captain") && !room.captainAId && !room.captainBId) {
+      round.resume("captain");
+      this.addEvent(room, round.isPaused ? "round-paused" : "round-resumed",
+        "Kaptan kalmadığı için manuel duraklatma kaldırıldı.");
+    }
 
     if (room.hostId === playerId) {
       const oldestRemainingPlayerId = [...room.players.values()].find((remaining) => remaining.isConnected)?.id
@@ -684,6 +727,7 @@ export class RoomManager {
       roundId: roundState?.roundId ?? null,
       roundEndsAt: roundState?.roundEndsAt ?? null,
       roundPausedRemainingMs: roundState?.roundPausedRemainingMs ?? null,
+      pauseCauses: roundState?.pauseCauses ?? { captain: false, "clue-giver-reconnect": false },
       passesUsed: roundState?.passesUsed ?? 0,
       tabuCooldownUntil: roundState?.tabuCooldownUntil ?? null,
       powerUps: copyPowerUps(room.powerUps),

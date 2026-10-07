@@ -91,6 +91,13 @@
 @keyframes winner-arrive { from { opacity: 0; transform: translateY(7px) scale(0.92); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 .round-summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; }
+.round-status-controls { display: flex; flex: 0 0 auto; flex-direction: column; align-items: center; gap: 8px; }
+.round-pause-button { min-height: 36px; padding: 7px 11px; border: 2px solid #b8abd9; border-radius: 10px; background: #f5f0ff; color: #553d8c; font: inherit; font-size: 12px; font-weight: 900; white-space: nowrap; cursor: pointer; }
+.round-pause-button:hover:not(:disabled) { background: #e9dfff; }
+.round-pause-button:disabled { opacity: .55; cursor: default; }
+.round-manual-pause { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 0 auto 14px; padding: 15px; border: 2px solid #b9a7ee; border-radius: 14px; background: #f1eaff; color: #513688; text-align: center; }
+.round-manual-pause strong { font-size: 18px; font-weight: 1000; letter-spacing: .04em; }
+.round-manual-pause span { font-size: 12px; font-weight: 700; }
 .round-team-A { border-color: #dce2ff; background: #f6f7ff; }
 .round-team-B { border-color: #ffddd0; background: #fff6f1; }
 .round-summary .turn-kicker { color: var(--muted); }
@@ -144,6 +151,9 @@
   .score-team span { font-size: 11px; }
   .score-team strong { font-size: 33px; }
   .round-summary { padding: 12px; }
+  .round-summary .active-team-label { font-size: 19px; }
+  .round-status-controls { gap: 6px; }
+  .round-pause-button { max-width: 105px; padding: 6px 8px; font-size: 11px; }
   .round-countdown { width: 79px; height: 79px; }
   .round-countdown strong { font-size: 28px; }
   .game-settings { flex-direction: column; align-items: center; gap: 7px; }

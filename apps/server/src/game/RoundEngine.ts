@@ -1,4 +1,4 @@
-import type { CardAction, PowerUp, TabuCard, Team, TeamScores } from "@tabu/shared";
+import type { CardAction, PowerUp, RoundPauseCause, RoundPauseCauses, TabuCard, Team, TeamScores } from "@tabu/shared";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
@@ -29,6 +29,7 @@ export class RoundEngine {
   private roundStartedAtValue: number | null = null;
   private roundEndsAtValue: number | null = null;
   private pausedRemainingMs: number | null = null;
+  private readonly pauseCauses = new Set<RoundPauseCause>();
   private passesUsedValue = 0;
   private tabuCooldownUntilValue: number | null = null;
   private timer: TimerHandle | null = null;
@@ -49,8 +50,10 @@ export class RoundEngine {
   }
 
   get isPaused(): boolean {
-    return this.pausedRemainingMs !== null;
+    return this.pauseCauses.size > 0;
   }
+
+  hasPauseCause(cause: RoundPauseCause): boolean { return this.pauseCauses.has(cause); }
 
   get activePowerUp(): PowerUp | null { return this.activePowerUpValue; }
 
@@ -71,6 +74,7 @@ export class RoundEngine {
     roundId: number | null;
     roundEndsAt: number | null;
     roundPausedRemainingMs: number | null;
+    pauseCauses: RoundPauseCauses;
     passesUsed: number;
     tabuCooldownUntil: number | null;
   } {
@@ -79,6 +83,7 @@ export class RoundEngine {
       roundId: this.roundIdValue,
       roundEndsAt: this.roundEndsAtValue,
       roundPausedRemainingMs: this.pausedRemainingMs,
+      pauseCauses: { captain: this.pauseCauses.has("captain"), "clue-giver-reconnect": this.pauseCauses.has("clue-giver-reconnect") },
       passesUsed: this.passesUsedValue,
       tabuCooldownUntil: this.tabuCooldownUntilValue
     };
@@ -103,22 +108,27 @@ export class RoundEngine {
     this.scheduleExpiration(durationSeconds * 1000);
   }
 
-  pause(): boolean {
-    if (!this.isActive || this.isPaused) return false;
-    if (this.expireIfDue()) return false;
-    const remainingMs = Math.max(0, this.roundEndsAtValue! - this.clock.now());
-    if (remainingMs <= 0) {
-      this.finish();
-      return false;
+  pause(cause: RoundPauseCause = "clue-giver-reconnect"): boolean {
+    if (!this.isActive || this.pauseCauses.has(cause)) return false;
+    if (!this.isPaused) {
+      if (this.expireIfDue()) return false;
+      const remainingMs = Math.max(0, this.roundEndsAtValue! - this.clock.now());
+      if (remainingMs <= 0) {
+        this.finish();
+        return false;
+      }
+      this.clearTimer();
+      this.pausedRemainingMs = remainingMs;
+      this.roundEndsAtValue = null;
     }
-    this.clearTimer();
-    this.pausedRemainingMs = remainingMs;
-    this.roundEndsAtValue = null;
+    this.pauseCauses.add(cause);
     return true;
   }
 
-  resume(): boolean {
-    if (!this.isActive || this.pausedRemainingMs === null) return false;
+  resume(cause: RoundPauseCause = "clue-giver-reconnect"): boolean {
+    if (!this.isActive || !this.pauseCauses.delete(cause)) return false;
+    if (this.isPaused) return true;
+    if (this.pausedRemainingMs === null) throw new Error("Paused round has no remaining time.");
     const remainingMs = this.pausedRemainingMs;
     this.pausedRemainingMs = null;
     this.roundEndsAtValue = this.clock.now() + remainingMs;
@@ -213,6 +223,7 @@ export class RoundEngine {
     this.roundStartedAtValue = null;
     this.roundEndsAtValue = null;
     this.pausedRemainingMs = null;
+    this.pauseCauses.clear();
     this.passesUsedValue = 0;
     this.activePowerUpValue = null;
   }

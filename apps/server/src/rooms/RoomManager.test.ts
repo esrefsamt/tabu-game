@@ -26,6 +26,7 @@ test("room state keeps Phase 4 lobby features and never includes private deck st
     roundId: null,
     roundEndsAt: null,
     roundPausedRemainingMs: null,
+    pauseCauses: { captain: false, "clue-giver-reconnect": false },
     passesUsed: 0,
     tabuCooldownUntil: null,
     powerUps: { A: { "double-score": true, "attack-score": true }, B: { "double-score": true, "attack-score": true } },

@@ -15,7 +15,7 @@ const room: RoomState = {
   settings: { roundDurationSeconds: 60, passLimit: 3, targetScore: 10, cardSelection: { mode: "GENERAL" } },
   game: { phase: "lobby", winnerTeam: null, activeTeam: null, clueGiverId: null, error: null,
     scores: { A: 0, B: 0 }, completedRounds: { A: 0, B: 0 }, isOvertime: false,
-    roundId: null, roundEndsAt: null, roundPausedRemainingMs: null, passesUsed: 0, tabuCooldownUntil: null,
+    roundId: null, roundEndsAt: null, roundPausedRemainingMs: null, pauseCauses: { captain: false, "clue-giver-reconnect": false }, passesUsed: 0, tabuCooldownUntil: null,
     powerUps: { A: { "double-score": true, "attack-score": true }, B: { "double-score": true, "attack-score": true } },
     selectedPowerUp: null, activePowerUp: null },
   recentEvents: []

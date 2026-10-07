@@ -16,6 +16,7 @@ import type {
   ReturnToLobbyError,
   RoundStartError,
   RoundDurationSeconds,
+  SetPauseError,
   SettingsActionError,
   Team,
   TargetScore,
@@ -23,7 +24,7 @@ import type {
 } from "@tabu/shared";
 import {
   getCurrentPlayerId, getLastKickedRoomCode, hasRoomSession, kickPlayer, leaveRoom, movePlayer, resumeRoom, returnToLobby,
-  sendCardAction, selectPowerUp, setCaptain, socket, startGame, startRound,
+  sendCardAction, selectPowerUp, setCaptain, setMatchPause, socket, startGame, startRound,
   updateRoomSettings, usePersonalGameView, useRoomState
 } from "../lib/socket";
 import CensoredCard from "../components/CensoredCard";
@@ -167,6 +168,19 @@ function powerUpErrorMessage(error: SelectPowerUpError): string {
     case "not-clue-giver": return "Güçlendirmeyi yalnızca anlatıcı seçebilir.";
     case "invalid-power-up": return "Geçersiz güçlendirme.";
     case "power-up-unavailable": return "Bu güçlendirme kullanıldı.";
+    case "server-unavailable": return "Sunucuya bağlanılamadı.";
+    case "request-timeout": return "Sunucudan yanıt alınamadı.";
+  }
+}
+
+function pauseErrorMessage(error: SetPauseError): string {
+  switch (error) {
+    case "not-in-room": return "Oda bağlantısı bulunamadı.";
+    case "not-captain": return "Oyunu yalnızca kaptanlar duraklatabilir.";
+    case "round-not-active": return "Aktif tur bulunamadı.";
+    case "invalid-request": return "Geçersiz duraklatma isteği.";
+    case "invalid-pause-state": return "Turun duraklatma durumu değişti.";
+    case "pause-cooldown": return "Tekrar denemeden önce kısa bir süre bekle.";
     case "server-unavailable": return "Sunucuya bağlanılamadı.";
     case "request-timeout": return "Sunucudan yanıt alınamadı.";
   }
@@ -396,6 +410,10 @@ function RoundScreen({ room }: { room: RoomState }) {
   const [now, setNow] = useState(Date.now());
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [pausePending, setPausePending] = useState(false);
+  const [pauseLocked, setPauseLocked] = useState(false);
+  const [pauseError, setPauseError] = useState("");
+  const pauseLockTimer = useRef<number | null>(null);
   const currentPlayer = room.players.find((player) => player.id === getCurrentPlayerId());
   const clueGiver = room.players.find((player) => player.id === room.game.clueGiverId);
   const activeTeam = room.game.activeTeam;
@@ -409,6 +427,9 @@ function RoundScreen({ room }: { room: RoomState }) {
   const cardVersion = visibleCard ? view.cardVersion : null;
   const passesRemaining = Math.max(0, room.settings.passLimit - room.game.passesUsed);
   const isPaused = room.game.roundPausedRemainingMs !== null;
+  const captainPaused = room.game.pauseCauses.captain;
+  const reconnectPaused = room.game.pauseCauses["clue-giver-reconnect"];
+  const isCaptain = currentPlayer?.id === room.captainAId || currentPlayer?.id === room.captainBId;
   const tabuCooling = room.game.tabuCooldownUntil !== null && now < room.game.tabuCooldownUntil;
   const teamAPlayers = room.players.filter((player) => player.team === "A");
   const teamBPlayers = room.players.filter((player) => player.team === "B");
@@ -435,6 +456,24 @@ function RoundScreen({ room }: { room: RoomState }) {
   }, [room.game.roundEndsAt, room.game.roundPausedRemainingMs]);
 
   useEffect(() => { setActionError(""); }, [view.cardVersion]);
+  useEffect(() => () => { if (pauseLockTimer.current !== null) window.clearTimeout(pauseLockTimer.current); }, []);
+
+  async function handlePauseChange() {
+    if (!isCaptain || pausePending || pauseLocked || (!captainPaused && reconnectPaused)) return;
+    setPauseError("");
+    setPausePending(true);
+    const response = await setMatchPause({ paused: !captainPaused });
+    setPausePending(false);
+    if (!response.ok) {
+      setPauseError(pauseErrorMessage(response.error));
+      return;
+    }
+    setPauseLocked(true);
+    pauseLockTimer.current = window.setTimeout(() => {
+      pauseLockTimer.current = null;
+      setPauseLocked(false);
+    }, 900);
+  }
 
   async function act(action: CardAction) {
     if (cardVersion === null || actionPending || isPaused || (action === "tabu" && tabuCooling)) return;
@@ -461,10 +500,17 @@ function RoundScreen({ room }: { room: RoomState }) {
             <p className="active-team-label">Takım {activeTeam}</p>
             <p className="clue-giver-name">Anlatıcı <strong>{clueGiver?.name ?? "Oyuncu bulunamadı"}</strong></p>
           </div>
-          <div className={`round-countdown${remainingSeconds <= 10 ? " round-countdown-low" : ""}`} aria-label={`Kalan süre ${remainingSeconds} saniye`}>
-            <strong>{remainingSeconds}</strong><span>SANİYE</span>
+          <div className="round-status-controls">
+            <div className={`round-countdown${remainingSeconds <= 10 ? " round-countdown-low" : ""}`} aria-label={`Kalan süre ${remainingSeconds} saniye`}>
+              <strong>{remainingSeconds}</strong><span>SANİYE</span>
+            </div>
+            {isCaptain && (captainPaused || !reconnectPaused) && <button className="round-pause-button" type="button"
+              disabled={pausePending || pauseLocked} onClick={() => void handlePauseChange()}>
+              {captainPaused ? "▶ Devam Et" : "⏸ Duraklat"}
+            </button>}
           </div>
         </div>
+        {pauseError && <p className="validation-message round-error" role="alert">{pauseError}</p>}
 
         <div className="match-stage">
           <section className="team-panel match-team-a" aria-label="Takım A oyuncuları">
@@ -472,7 +518,8 @@ function RoundScreen({ room }: { room: RoomState }) {
             <TeamPlayerList players={teamAPlayers} captainId={room.captainAId} clueGiverId={room.game.clueGiverId} />
           </section>
           <div className="match-center">
-        {isPaused && <p className="round-reconnecting" role="status">Anlatıcı yeniden bağlanıyor…</p>}
+        {captainPaused && <div className="round-manual-pause" role="status"><strong>OYUN DURAKLATILDI</strong><span>Kaptanlardan biri oyunu devam ettirebilir.</span></div>}
+        {reconnectPaused && <p className="round-reconnecting" role="status">Anlatıcı yeniden bağlanıyor…</p>}
 
         {isActiveTeammate ? (
           <CensoredCard />

@@ -101,6 +101,16 @@ test("card results reach every room member only after valid actions and reveal o
   assert.deepEqual(await a1.emitWithAck("game:start-round"), { ok: true });
   await waitFor(() => views.every((view) => view?.roundId === 1));
 
+  assert.deepEqual(await a1.emitWithAck("game:set-pause", { paused: true }), { ok: false, error: "not-captain" });
+  assert.deepEqual(await a2.emitWithAck("game:set-pause", { paused: true }), { ok: true });
+  await waitFor(() => states.every((state) => state?.game.pauseCauses.captain === true));
+  assert.deepEqual(await a1.emitWithAck("game:card-action", { action: "correct", cardVersion: views[0]!.cardVersion! }), {
+    ok: false, error: "round-not-active"
+  });
+  clock.advance(900);
+  assert.deepEqual(await b1.emitWithAck("game:set-pause", { paused: false }), { ok: true });
+  await waitFor(() => states.every((state) => state?.game.pauseCauses.captain === false));
+
   const firstCard = views[0]?.currentCard;
   const firstVersion = views[0]?.cardVersion;
   assert.ok(firstCard && firstVersion);

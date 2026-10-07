@@ -13,6 +13,7 @@ import type {
   RoomState,
   ReturnToLobbyResponse,
   RoundStartResponse,
+  SetPauseResponse,
   SelectPowerUpResponse,
   ServerToClientEvents,
   SettingsActionResponse,
@@ -342,6 +343,21 @@ export function registerRoomHandlers(io: TabuServer, rooms: RoomManager, session
       }
       broadcastRoomState(io, rooms, sessions, session.roomCode, result.room);
       respond(acknowledge, { ok: true } satisfies SelectPowerUpResponse);
+    });
+
+    socket.on("game:set-pause", (payload, acknowledge) => {
+      const session = sessions.current(socket.id);
+      if (!session) {
+        respond(acknowledge, { ok: false, error: "not-in-room" } satisfies SetPauseResponse);
+        return;
+      }
+      const result = rooms.setManualPause(session.roomCode, session.playerId, payload);
+      if (!result.ok) {
+        respond(acknowledge, result);
+        return;
+      }
+      broadcastRoomState(io, rooms, sessions, session.roomCode, result.room);
+      respond(acknowledge, { ok: true } satisfies SetPauseResponse);
     });
 
     socket.on("game:card-action", (payload, acknowledge) => {

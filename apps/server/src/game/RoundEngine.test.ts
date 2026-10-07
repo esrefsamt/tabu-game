@@ -211,3 +211,36 @@ test("a new round engine can continue card versions without accepting a previous
   });
   newRound.dispose();
 });
+
+test("independent pause causes preserve one timer, card, power-up and exact remaining time", () => {
+  const { round, clock, expiredCount } = roundFixture();
+  round.start(60, "double-score");
+  clock.advance(22_600);
+  const card = round.currentCard;
+  const version = round.cardVersion;
+  assert.equal(round.pause("captain"), true);
+  assert.equal(round.publicState.roundPausedRemainingMs, 37_400);
+  assert.equal(clock.activeTimerCount, 0);
+  assert.equal(round.pause("captain"), false);
+  assert.equal(round.pause("clue-giver-reconnect"), true);
+  clock.advance(100_000);
+  assert.equal(expiredCount(), 0);
+  assert.equal(round.currentCard, card);
+  assert.equal(round.cardVersion, version);
+  assert.equal(round.activePowerUp, "double-score");
+  assert.deepEqual(round.publicState.pauseCauses, { captain: true, "clue-giver-reconnect": true });
+  assert.equal(round.resume("captain"), true);
+  assert.equal(round.isPaused, true);
+  assert.equal(clock.activeTimerCount, 0);
+  assert.deepEqual(round.applyAction("correct", version!, "A", 3), { ok: false, error: "round-not-active" });
+  assert.equal(round.resume("clue-giver-reconnect"), true);
+  assert.equal(round.publicState.roundEndsAt, clock.now() + 37_400);
+  assert.equal(clock.activeTimerCount, 1);
+  assert.equal(round.resume("captain"), false);
+  clock.advance(37_399);
+  assert.equal(expiredCount(), 0);
+  clock.advance(1);
+  assert.equal(expiredCount(), 1);
+  assert.equal(clock.activeTimerCount, 0);
+  assert.deepEqual(round.publicState.pauseCauses, { captain: false, "clue-giver-reconnect": false });
+});

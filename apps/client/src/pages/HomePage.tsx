@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { RoomActionResponse, RoomErrorCode } from "@tabu/shared";
 import { createRoom, joinRoom } from "../lib/socket";
+import RoomEntryForms from "../components/RoomEntryForms";
+import { inviteRoomCode } from "../lib/inviteRoomCode";
 
 function errorMessage(error: RoomErrorCode): string {
   switch (error) {
@@ -30,7 +32,7 @@ function HomePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [playerName, setPlayerName] = useState("");
-  const [roomCode, setRoomCode] = useState(searchParams.get("room")?.toUpperCase() ?? "");
+  const [roomCode, setRoomCode] = useState(inviteRoomCode(searchParams));
   const [error, setError] = useState<string | null>(
     searchParams.has("sessionMoved") ? "Oturum başka sekmede açıldı. Devam etmek için tekrar katıl."
       : searchParams.has("sessionExpired") ? "Oturum süresi doldu. Odaya tekrar katıl."
@@ -106,45 +108,11 @@ function HomePage() {
           </div>
         </div>
 
-        <form className="room-form" onSubmit={handleCreateRoom} noValidate>
-          <label htmlFor="player-name">Oyuncu adın</label>
-          <input
-            autoComplete="nickname"
-            id="player-name"
-            maxLength={20}
-            onChange={(event) => {
-              setPlayerName(event.target.value);
-              setError(null);
-            }}
-            placeholder="Adını yaz"
-            value={playerName}
-          />
-          {error && <p className="validation-message" role="alert">{error}</p>}
-          <button className="button button-primary create-button" disabled={pending} type="submit">
-            {pending ? "Bağlanıyor…" : "Oda Oluştur"}
-          </button>
-        </form>
-
-        <div className="divider" aria-hidden="true"><span>veya</span></div>
-
-        <form className="room-form join-form" onSubmit={handleJoinRoom} noValidate>
-          <label htmlFor="room-code">Oda kodu</label>
-          <input
-            autoCapitalize="characters"
-            autoComplete="off"
-            id="room-code"
-            maxLength={6}
-            onChange={(event) => {
-              setRoomCode(event.target.value.toUpperCase());
-              setError(null);
-            }}
-            placeholder="Örn. ABC234"
-            value={roomCode}
-          />
-          <button className="button button-secondary join-button" disabled={pending} type="submit">
-            {pending ? "Bağlanıyor…" : "Odaya Katıl"}
-          </button>
-        </form>
+        <RoomEntryForms playerName={playerName} roomCode={roomCode} error={error} pending={pending}
+          onNameChange={(value) => { setPlayerName(value); setError(null); }}
+          onCodeChange={(value) => { setRoomCode(value); setError(null); }}
+          onJoin={(event) => { void handleJoinRoom(event); }}
+          onCreate={(event) => { void handleCreateRoom(event); }} />
       </section>
       </div>
       <p className="page-note">Kelimeyi anlat, yasaklı kelimelere dikkat et.</p>

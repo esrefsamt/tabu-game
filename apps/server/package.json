@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "tsx --test src/serverConfig.test.ts src/cards/cards.test.ts src/cards/playerCategories.test.ts src/cards/history/cardHistory.test.ts src/game/RoundEngine.test.ts src/game/TurnEngine.test.ts src/rooms/PlayerSessionManager.test.ts src/rooms/RoomManager.test.ts src/rooms/RoomManager.move.test.ts src/rooms/RoomManager.kick.test.ts src/rooms/RoomManager.round.test.ts src/rooms/RoomManager.match.test.ts src/rooms/RoomManager.rematch.test.ts src/rooms/RoomManager.categories.test.ts src/rooms/RoomManager.phase17.test.ts src/rooms/RoomManager.phase18.test.ts src/socket/roomHandlers.test.ts",
+    "test": "tsx --test src/serverConfig.test.ts src/cards/cards.test.ts src/cards/playerCategories.test.ts src/cards/history/cardHistory.test.ts src/game/RoundEngine.test.ts src/game/TurnEngine.test.ts src/rooms/PlayerSessionManager.test.ts src/rooms/RoomManager.test.ts src/rooms/RoomManager.move.test.ts src/rooms/RoomManager.kick.test.ts src/rooms/RoomManager.round.test.ts src/rooms/RoomManager.match.test.ts src/rooms/RoomManager.rematch.test.ts src/rooms/RoomManager.categories.test.ts src/rooms/RoomManager.phase17.test.ts src/rooms/RoomManager.phase18.test.ts src/rooms/RoomManager.phase19.test.ts src/socket/roomHandlers.test.ts",
     "cards:quality": "tsx src/cards/cardQualityReport.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
